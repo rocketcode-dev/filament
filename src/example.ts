@@ -1,4 +1,4 @@
-import { createApp, FrameworkMeta } from './index';
+import { createApp, FrameworkMeta } from './index.js';
 
 /**
  * Example application demonstrating Filament usage
@@ -143,12 +143,12 @@ app.onFinalize(async (req, res) => {
 
 // Start server
 const PORT = 3000;
-app.listen(PORT, () => {
-  console.log(`\n🔥 Filament server running on http://localhost:${PORT}\n`);
+app.listen(PORT).then(port => {
+  console.log(`\n🔥 Filament server running on http://localhost:${port}\n`);
   console.log('Try these endpoints:');
-  console.log(`  GET  http://localhost:${PORT}/public`);
-  console.log(`  GET  http://localhost:${PORT}/admin (requires auth)`);
-  console.log(`  POST http://localhost:${PORT}/api/data`);
-  console.log(`  GET  http://localhost:${PORT}/users/123`);
+  console.log(`  GET  http://localhost:${port}/public`);
+  console.log(`  GET  http://localhost:${port}/admin (requires auth)`);
+  console.log(`  POST http://localhost:${port}/api/data`);
+  console.log(`  GET  http://localhost:${port}/users/123`);
   console.log('');
 });

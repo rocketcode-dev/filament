@@ -2,7 +2,7 @@
  * Filament - A TypeScript API framework with metadata-driven middleware
  */
 
-export { createApp, Application } from './application';
+export { createApp, Application } from './application.js';
 export {
   FrameworkMeta,
   HttpMethod,
@@ -13,4 +13,4 @@ export {
   Finalizer,
   ResponseTransformer,
   NextFunction,
-} from './types';
+} from './types.js';

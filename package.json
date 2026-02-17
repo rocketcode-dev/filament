@@ -1,13 +1,17 @@
 {
-  "name": "filament",
-  "version": "1.0.0",
+  "name": "filamentjs",
+  "version": "0.1.0",
   "description": "A TypeScript API framework with metadata-driven middleware",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "type": "module",
   "scripts": {
     "build": "tsc",
     "start": "node dist/example.js",
-    "dev": "tsc && node dist/example.js"
+    "dev": "tsc && node dist/example.js",
+    "test": "npm run build && node --test dist/tests/**/*.test.js",
+    "prepublishOnly": "npm run build && npm run test",
+    "prepare": "git config core.hooksPath .githooks || true"
   },
   "keywords": [
     "express",
@@ -20,7 +24,8 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "@types/node": "^20.0.0",
+    "@types/node": "^20.19.33",
+    "test-battery": "^3.2.0",
     "typescript": "^5.0.0"
   }
 }

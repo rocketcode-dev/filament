@@ -1,0 +1,23 @@
+#!/bin/bash
+# Pre-commit hook to ensure dist folder is up to date
+
+# Run build
+npm run build
+
+if [ $? -ne 0 ]; then
+  echo "Build failed. Commit aborted."
+  exit 1
+fi
+
+# Check if dist files have uncommitted changes
+git diff --quiet dist/
+
+if [ $? -ne 0 ]; then
+  echo ""
+  echo "⚠️  The dist/ folder has changes that were not staged."
+  echo "Run 'npm run build' and stage the dist/ folder before committing."
+  echo ""
+  exit 1
+fi
+
+exit 0

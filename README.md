@@ -2,6 +2,19 @@
 
 A TypeScript API framework with metadata-driven middleware. Similar in purpose to Express but organized around typed endpoint metadata that controls middleware behavior.
 
+## Why Filament?
+
+### Best Features
+
+- **Type-Safe Metadata**: Full TypeScript support means your middleware logic is validated at compile time
+- **Zero Runtime Overhead**: Metadata inspection is fast—no reflection or complex routing logic
+- **Predictable Execution**: Registration order is everything—no magic, no surprises
+- **Immutable Request Context**: Middleware can't accidentally corrupt endpoint metadata
+- **Flexible Post-Processing**: Handle errors, transform responses, and finalize requests with dedicated hooks
+- **Express-Familiar API**: If you know Express, you know Filament—intuitive and approachable
+- **Minimal Dependencies**: Lightweight framework perfect for microservices and APIs
+- **Strongly Typed Middleware**: Know exactly what metadata your middleware needs before writing a single line
+
 ## Core Concepts
 
 ### 1. Endpoint Metadata (`EndpointMeta`)
@@ -28,6 +41,7 @@ Middleware runs in registration order. Each middleware inspects `req.endpointMet
 ### 4. Post-Request Processing
 
 Three types of post-request handlers:
+
 - **Error Handlers**: Run when errors occur
 - **Response Transformers**: Modify successful responses
 - **Finalizers**: Always run, regardless of success/failure
@@ -35,7 +49,7 @@ Three types of post-request handlers:
 ## Quick Start
 
 ```typescript
-import { createApp, FrameworkMeta } from './index';
+import { createApp, FrameworkMeta } from 'filamentjs';
 
 // Define your metadata interface
 interface AppMeta extends FrameworkMeta {
@@ -92,6 +106,7 @@ app.listen(3000);
 Creates a new application instance with typed metadata.
 
 **Parameters:**
+
 - `defaultMeta`: Complete implementation of your metadata interface
 
 **Returns:** Application instance
@@ -158,7 +173,7 @@ interface Response {
 
 ## Request Lifecycle
 
-```
+```text
 1. Incoming Request
    ↓
 2. Route Matching → req.endpointMeta populated (readonly)
@@ -228,6 +243,7 @@ app.onError(async (err, req, res) => {
 ## Complete Example
 
 See `src/example.ts` for a complete working example with:
+
 - Authentication middleware
 - Rate limiting middleware
 - Logging middleware
@@ -247,6 +263,7 @@ See `src/example.ts` for a complete working example with:
 ## TypeScript
 
 Full TypeScript support with strict typing:
+
 - Generic `Application<T>` for typed metadata
 - Type-safe request/response objects
 - Compile-time validation of metadata interfaces

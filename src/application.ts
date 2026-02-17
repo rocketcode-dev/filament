@@ -11,16 +11,38 @@ import {
   ResponseTransformer,
   Route,
   Middleware,
-} from './types';
-import { ResponseImpl } from './response';
-import { pathToRegex, matchPath } from './router';
+} from './types.js';
+import { ResponseImpl } from './response.js';
+import { pathToRegex, matchPath } from './router.js';
 
 /**
- * Main Application class for Filament
+ * Main Application class for Filament.
+ * 
+ * The `Application` class is the core of the Filament framework. It manages routes,
+ * middleware, error handling, and the HTTP server lifecycle.
+ * Use {@link createApp} to instantiate an application.
+ * 
+ * @template T - The application metadata type that extends FrameworkMeta
+ * 
+ * @example
+ * ```typescript
+ * interface AppMeta extends FrameworkMeta {
+ *   requiresAuth: boolean;
+ * }
+ * 
+ * const app = createApp<AppMeta>({ requiresAuth: false });
+ * 
+ * app.get('/users/:id', { requiresAuth: true }, async (req, res) => {
+ *   res.json({ id: req.params.id, auth: req.endpointMeta.requiresAuth });
+ * });
+ * 
+ * const port = await app.listen(3000);
+ * console.log(`Server running on port ${port}`);
+ * ```
  */
 export class Application<T extends FrameworkMeta> {
   private routes: Route<T>[] = [];
-  private middlewares: Middleware[] = [];
+  private middlewares: Middleware<T>[] = [];
   private errorHandlers: ErrorHandler<T>[] = [];
   private finalizers: Finalizer<T>[] = [];
   private transformers: ResponseTransformer<T>[] = [];
@@ -34,7 +56,12 @@ export class Application<T extends FrameworkMeta> {
   /**
    * Register a route
    */
-  private route(method: HttpMethod, path: string, meta: Partial<T>, handler: AsyncRequestHandler): void {
+  private route(
+    method: HttpMethod,
+    path: string,
+    meta: Partial<T>,
+    handler: AsyncRequestHandler<T>
+  ): void {
     const { pattern, paramNames } = pathToRegex(path);
     const mergedMeta = this.mergeMeta(meta);
 
@@ -60,30 +87,53 @@ export class Application<T extends FrameworkMeta> {
   }
 
   // HTTP method helpers
-  get(path: string, meta: Partial<T>, handler: AsyncRequestHandler): void {
+  get(
+    path: string,
+    meta: Partial<T>,
+    handler: AsyncRequestHandler<T>
+  ): void {
     this.route('GET', path, meta, handler);
   }
 
-  post(path: string, meta: Partial<T>, handler: AsyncRequestHandler): void {
+  post(
+    path: string,
+    meta: Partial<T>,
+    handler: AsyncRequestHandler<T>
+  ): void {
     this.route('POST', path, meta, handler);
   }
 
-  put(path: string, meta: Partial<T>, handler: AsyncRequestHandler): void {
+  put(
+    path: string,
+    meta: Partial<T>,
+    handler: AsyncRequestHandler<T>
+  ): void {
     this.route('PUT', path, meta, handler);
   }
 
-  patch(path: string, meta: Partial<T>, handler: AsyncRequestHandler): void {
+  patch(
+    path: string,
+    meta: Partial<T>,
+    handler: AsyncRequestHandler<T>
+  ): void {
     this.route('PATCH', path, meta, handler);
   }
 
-  delete(path: string, meta: Partial<T>, handler: AsyncRequestHandler): void {
+  delete(
+    path: string,
+    meta: Partial<T>,
+    handler: AsyncRequestHandler<T>
+  ): void {
     this.route('DELETE', path, meta, handler);
   }
 
   /**
    * Register middleware
    */
-  use(pathOrHandler: string | AsyncRequestHandler, handler?: AsyncRequestHandler): void {
+  use(
+    pathOrHandler: string | AsyncRequestHandler<T>,
+    handler?: AsyncRequestHandler<T>
+  ): void {
     if (typeof pathOrHandler === 'string' && handler) {
       this.middlewares.push({ path: pathOrHandler, handler });
     } else if (typeof pathOrHandler === 'function') {
@@ -118,7 +168,7 @@ export class Application<T extends FrameworkMeta> {
   private async executeMiddlewareChain(
     req: Request<T>,
     res: Response,
-    middlewares: AsyncRequestHandler[]
+    middlewares: AsyncRequestHandler<T>[]
   ): Promise<void> {
     let currentIndex = 0;
 
@@ -308,22 +358,32 @@ export class Application<T extends FrameworkMeta> {
   /**
    * Start the server
    */
-  listen(port: number, callback?: () => void): void {
-    this.server = http.createServer((req, res) => {
-      this.handleRequest(req, res).catch((err) => {
-        console.error('Unhandled error in request handler:', err);
-        if (!res.headersSent) {
-          res.statusCode = 500;
-          res.end(JSON.stringify({ error: 'Internal Server Error' }));
+  async listen(port: number): Promise<number> {
+    return new Promise((resolve, reject) => {
+      this.server = http.createServer((req, res) => {
+        this.handleRequest(req, res).catch((err) => {
+          console.error('Unhandled error in request handler:', err);
+          if (!res.headersSent) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ error: 'Internal Server Error' }));
+          }
+        });
+      });
+
+      this.server.on('error', (err: NodeJS.ErrnoException) => {
+        if (err.code === 'EADDRINUSE') {
+          reject(new Error(`Port ${port} is already in use`));
+        } else if (err.code === 'EACCES') {
+          reject(new Error(`Permission denied: cannot listen on port ${port}`));
+        } else {
+          reject(new Error(`Failed to start server on port ${port}: ${err.message}`));
         }
       });
-    });
 
-    this.server.listen(port, () => {
-      console.log(`Server listening on port ${port}`);
-      if (callback) {
-        callback();
-      }
+      this.server.listen(port, () => {
+        console.log(`Server listening on port ${port}`);
+        resolve(port);
+      });
     });
   }
 
@@ -345,7 +405,33 @@ export class Application<T extends FrameworkMeta> {
 }
 
 /**
- * Factory function to create an application
+ * Factory function to create a new Filament application.
+ * 
+ * Creates an Application instance with the specified metadata type and default metadata values.
+ * The metadata type extends {@link FrameworkMeta} and defines the shape of metadata available
+ * to all route handlers and middleware.
+ * 
+ * @template T - The application metadata type that extends FrameworkMeta
+ * @param defaultMeta - Default metadata object shared across all routes.
+ *                      Route-specific metadata merges with these defaults.
+ * @returns A new Application instance with the specified metadata type
+ * 
+ * @example
+ * ```typescript
+ * interface AppMeta extends FrameworkMeta {
+ *   requiresAuth: boolean;
+ *   rateLimit: number;
+ * }
+ * 
+ * const app = createApp<AppMeta>({
+ *   requiresAuth: false,
+ *   rateLimit: 100,
+ * });
+ * 
+ * app.get('/public', {}, async (req, res) => {
+ *   res.json({ auth: req.endpointMeta.requiresAuth });
+ * });
+ * ```
  */
 export function createApp<T extends FrameworkMeta>(defaultMeta: T): Application<T> {
   return new Application<T>(defaultMeta);
