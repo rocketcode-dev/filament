@@ -1,5 +1,5 @@
 /**
- * Core type definitions for the meta-express framework
+ * Core type definitions for the Filament framework
  */
 // Export a marker to ensure this module has runtime exports
 export const __type_module__ = true;
