@@ -213,6 +213,7 @@ export class Application {
             params,
             query,
             headers,
+            context: {}, // Initialize empty context
             endpointMeta: matchedRoute.meta,
             _startTime: Date.now(),
         };

@@ -287,6 +287,7 @@ export class Application<T extends FrameworkMeta> {
       params,
       query,
       headers,
+      context: {}, // Initialize empty context
       endpointMeta: matchedRoute.meta,
       _startTime: Date.now(),
     };

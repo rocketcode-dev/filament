@@ -58,6 +58,12 @@ export interface Request<T extends FrameworkMeta = FrameworkMeta> {
     body?: unknown;
     /** Endpoint-specific metadata merged with default metadata */
     endpointMeta: Readonly<T>;
+    /**
+     * Context object for storing data during request processing. This is mutable
+     * and can be used by middleware and handlers to pass information along the
+     * processing chain.
+     */
+    context: Record<string, any>;
     /** @internal Request start timestamp in milliseconds */
     _startTime?: number;
 }
