@@ -2,6 +2,7 @@ import http from 'http';
 import { URL } from 'url';
 import { ResponseImpl } from './response.js';
 import { pathToRegex, matchPath } from './router.js';
+import { deepMerge } from './tools.js';
 /**
  * Main Application class for Filament.
  *
@@ -37,45 +38,68 @@ export class Application {
         this.defaultMeta = defaultMeta;
     }
     /**
-     * Register a route
+     * Register a route. Supports multiple paths, metadata, and a single handler.
      */
-    route(method, path, meta, handler) {
-        const { pattern, paramNames } = pathToRegex(path);
-        const mergedMeta = this.mergeMeta(meta);
-        this.routes.push({
-            method,
-            path,
-            pattern,
-            paramNames,
-            meta: mergedMeta,
-            handler,
-        });
+    route(method, ...pmh) {
+        // Start with defaults, then merge route-specific meta
+        let mergedMeta = this.defaultMeta;
+        const paths = [];
+        let handler = null;
+        for (const p of pmh) {
+            if (typeof p === 'string') {
+                paths.push(p);
+            }
+            else if (typeof p === 'function') {
+                if (null === handler) {
+                    handler = p;
+                }
+                else {
+                    throw new Error('Multiple handlers provided for route');
+                }
+            }
+            else if (typeof p === 'object') {
+                // Assume it's meta
+                mergedMeta = this.mergeMeta(mergedMeta, p);
+            }
+        }
+        if (!handler) {
+            throw new Error('No handler provided for route');
+        }
+        for (const path of paths) {
+            const { pattern, paramNames } = pathToRegex(path);
+            this.routes.push({
+                method,
+                path,
+                pattern,
+                paramNames,
+                meta: mergedMeta,
+                handler,
+            });
+        }
     }
     /**
      * Merge partial meta with defaults
      */
-    mergeMeta(partial) {
-        // Shallow merge - arrays replace
-        return {
-            ...this.defaultMeta,
-            ...partial,
-        };
+    mergeMeta(original, partial) {
+        let result = { ...original };
+        result = deepMerge(result, partial);
+        return result;
     }
     // HTTP method helpers
-    get(path, meta, handler) {
-        this.route('GET', path, meta, handler);
+    get(...pmh) {
+        this.route('GET', ...pmh);
     }
-    post(path, meta, handler) {
-        this.route('POST', path, meta, handler);
+    post(...pmh) {
+        this.route('POST', ...pmh);
     }
-    put(path, meta, handler) {
-        this.route('PUT', path, meta, handler);
+    put(...pmh) {
+        this.route('PUT', ...pmh);
     }
-    patch(path, meta, handler) {
-        this.route('PATCH', path, meta, handler);
+    patch(...pmh) {
+        this.route('PATCH', ...pmh);
     }
-    delete(path, meta, handler) {
-        this.route('DELETE', path, meta, handler);
+    delete(...pmh) {
+        this.route('DELETE', ...pmh);
     }
     /**
      * Register middleware
@@ -303,7 +327,6 @@ export class Application {
                 }
             });
             this.server.listen(port, () => {
-                console.log(`Server listening on port ${port}`);
                 resolve(port);
             });
         });

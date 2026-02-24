@@ -34,18 +34,18 @@ export declare class Application<T extends FrameworkMeta> {
     private server?;
     constructor(defaultMeta: T);
     /**
-     * Register a route
+     * Register a route. Supports multiple paths, metadata, and a single handler.
      */
     private route;
     /**
      * Merge partial meta with defaults
      */
     private mergeMeta;
-    get(path: string, meta: Partial<T>, handler: AsyncRequestHandler<T>): void;
-    post(path: string, meta: Partial<T>, handler: AsyncRequestHandler<T>): void;
-    put(path: string, meta: Partial<T>, handler: AsyncRequestHandler<T>): void;
-    patch(path: string, meta: Partial<T>, handler: AsyncRequestHandler<T>): void;
-    delete(path: string, meta: Partial<T>, handler: AsyncRequestHandler<T>): void;
+    get(...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]): void;
+    post(...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]): void;
+    put(...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]): void;
+    patch(...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]): void;
+    delete(...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]): void;
     /**
      * Register middleware
      */

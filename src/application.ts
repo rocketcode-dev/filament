@@ -14,6 +14,7 @@ import {
 } from './types.js';
 import { ResponseImpl } from './response.js';
 import { pathToRegex, matchPath } from './router.js';
+import { deepMerge } from './tools.js';
 
 /**
  * Main Application class for Filament.
@@ -54,77 +55,87 @@ export class Application<T extends FrameworkMeta> {
   }
 
   /**
-   * Register a route
+   * Register a route. Supports multiple paths, metadata, and a single handler.
    */
   private route(
     method: HttpMethod,
-    path: string,
-    meta: Partial<T>,
-    handler: AsyncRequestHandler<T>
+    ...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]
   ): void {
-    const { pattern, paramNames } = pathToRegex(path);
-    const mergedMeta = this.mergeMeta(meta);
+    // Start with defaults, then merge route-specific meta
+    let mergedMeta = this.defaultMeta;
 
-    this.routes.push({
-      method,
-      path,
-      pattern,
-      paramNames,
-      meta: mergedMeta,
-      handler,
-    });
+    const paths: string[] = [];
+    let handler: AsyncRequestHandler<T> | null = null;
+
+    for (const p of pmh) {
+      if (typeof p === 'string') {
+        paths.push(p);
+      } else if (typeof p === 'function') {
+        if (null === handler) {
+          handler = p;
+        } else {
+          throw new Error('Multiple handlers provided for route');
+        }
+      } else if (typeof p === 'object') {
+        // Assume it's meta
+        mergedMeta = this.mergeMeta(mergedMeta, p);
+      }
+    }
+    if (!handler) {
+      throw new Error('No handler provided for route');
+    }
+
+    for (const path of paths) {
+      const { pattern, paramNames } = pathToRegex(path);
+      this.routes.push({
+        method,
+        path,
+        pattern,
+        paramNames,
+        meta: mergedMeta,
+        handler,
+      });
+    }
   }
 
   /**
    * Merge partial meta with defaults
    */
-  private mergeMeta(partial: Partial<T>): T {
-    // Shallow merge - arrays replace
-    return {
-      ...this.defaultMeta,
-      ...partial,
-    };
+  private mergeMeta(original: T, partial: Partial<T>): T {
+    let result: T = { ...original };
+    result = deepMerge(result, partial);
+    return result;
   }
 
   // HTTP method helpers
   get(
-    path: string,
-    meta: Partial<T>,
-    handler: AsyncRequestHandler<T>
+    ...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]
   ): void {
-    this.route('GET', path, meta, handler);
+    this.route('GET', ...pmh);
   }
 
   post(
-    path: string,
-    meta: Partial<T>,
-    handler: AsyncRequestHandler<T>
+    ...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]
   ): void {
-    this.route('POST', path, meta, handler);
+    this.route('POST', ...pmh);
   }
 
   put(
-    path: string,
-    meta: Partial<T>,
-    handler: AsyncRequestHandler<T>
+    ...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]
   ): void {
-    this.route('PUT', path, meta, handler);
+    this.route('PUT', ...pmh);
   }
 
   patch(
-    path: string,
-    meta: Partial<T>,
-    handler: AsyncRequestHandler<T>
+    ...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]
   ): void {
-    this.route('PATCH', path, meta, handler);
+    this.route('PATCH', ...pmh);
   }
 
   delete(
-    path: string,
-    meta: Partial<T>,
-    handler: AsyncRequestHandler<T>
+    ...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]
   ): void {
-    this.route('DELETE', path, meta, handler);
+    this.route('DELETE', ...pmh);
   }
 
   /**
@@ -382,7 +393,6 @@ export class Application<T extends FrameworkMeta> {
       });
 
       this.server.listen(port, () => {
-        console.log(`Server listening on port ${port}`);
         resolve(port);
       });
     });

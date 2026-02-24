@@ -10,13 +10,13 @@
 
 ## Coding standards
 
-- Lines under 80 columns when possible
 - Comments are to document design and usage, not to repeat code.
 - When updating code, ensure that the READMEs and test cases are also up to date whith your changes.
 
 ### Typescript
 
-- imports should be in this order: Native, public libraries, local modules. Alphabetize within this order. Local modules may be difficult to alphabetize, just do your best.
+- Lines under 80 columns when possible
+- Imports should be in this order: Native, public libraries, local modules. Alphabetize within this order. Local modules may be difficult to alphabetize, just do your best.
 
 ### Markdown
 
@@ -31,14 +31,10 @@
 - Integration tests use real HTTP servers on high-numbered ports (9876+)
 
 ```typescript
-import { describe, it } from 'node:test';
+import { suite } from 'node:test';
 import TestBattery from 'test-battery';
 ```
 
 ## Protected files
 
 DO NOT modify: `/dist/*`, `package-lock.json`, `tsconfig.json` (ask first)
-
-## Adding route methods
-
-Follow pattern in `application.ts:62-81` - must update Route type and add handler
