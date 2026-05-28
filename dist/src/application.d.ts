@@ -1,4 +1,4 @@
-import { FrameworkMeta, AsyncRequestHandler, ErrorHandler, Finalizer, ResponseTransformer } from './types.js';
+import { FrameworkMeta, HttpMethod, AsyncRequestHandler, ErrorHandler, Finalizer, ResponseTransformer } from './types.js';
 /**
  * Main Application class for Filament.
  *
@@ -36,7 +36,7 @@ export declare class Application<T extends FrameworkMeta> {
     /**
      * Register a route. Supports multiple paths, metadata, and a single handler.
      */
-    private route;
+    route(method: HttpMethod, ...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]): void;
     /**
      * Merge partial meta with defaults
      */
@@ -121,4 +121,17 @@ export declare class Application<T extends FrameworkMeta> {
  * ```
  */
 export declare function createApp<T extends FrameworkMeta>(defaultMeta: T): Application<T>;
+export declare class RouteContext<T extends FrameworkMeta> {
+    private app;
+    private bases;
+    private metas;
+    constructor(app: Application<T>, ...basesAndMetas: (string | Partial<T>)[]);
+    route(method: HttpMethod, ...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]): void;
+    get(...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]): void;
+    post(...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]): void;
+    put(...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]): void;
+    patch(...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]): void;
+    delete(...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]): void;
+}
+export declare function createRouteContext<T extends FrameworkMeta>(app: Application<T>, ...basesAndMetas: (string | Partial<T>)[]): RouteContext<T>;
 //# sourceMappingURL=application.d.ts.map

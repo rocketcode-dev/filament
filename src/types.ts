@@ -60,7 +60,7 @@ export interface Request<T extends FrameworkMeta = FrameworkMeta> {
   /** HTTP request headers */
   headers: Record<string, string | string[] | undefined>;
   /** Parsed request body (for POST, PUT, PATCH requests) */
-  body?: unknown;
+  body?: Buffer;
   /** Endpoint-specific metadata merged with default metadata */
   endpointMeta: Readonly<T>;
   /**

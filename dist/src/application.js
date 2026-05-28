@@ -247,15 +247,7 @@ export class Application {
             for await (const chunk of nodeReq) {
                 chunks.push(chunk);
             }
-            const bodyStr = Buffer.concat(chunks).toString();
-            if (bodyStr) {
-                try {
-                    req.body = JSON.parse(bodyStr);
-                }
-                catch {
-                    req.body = bodyStr;
-                }
-            }
+            req.body = Buffer.concat(chunks);
         }
         // Create response object
         const res = new ResponseImpl((finalRes) => {
@@ -381,5 +373,68 @@ export class Application {
  */
 export function createApp(defaultMeta) {
     return new Application(defaultMeta);
+}
+export class RouteContext {
+    constructor(app, ...basesAndMetas) {
+        this.app = app;
+        this.bases = [];
+        this.metas = [];
+        for (const item of basesAndMetas) {
+            if (typeof item === 'string') {
+                this.bases.push(item);
+            }
+            else if (typeof item === 'object') {
+                this.metas.push(item);
+            }
+        }
+        if (this.bases.length === 0) {
+            this.bases.push('');
+        }
+    }
+    route(method, ...pmh) {
+        const paths = [];
+        const metas = Array.from(this.metas);
+        let handler = null;
+        for (const item of pmh) {
+            if (typeof item === 'string') {
+                for (const base of this.bases) {
+                    const fullPath = `${base}${item}`;
+                    paths.push(fullPath);
+                }
+            }
+            else if (typeof item === 'function') {
+                if (handler) {
+                    throw new Error('Multiple handlers provided for route');
+                }
+                handler = item;
+            }
+            else if (typeof item === 'object') {
+                metas.push(item);
+            }
+        }
+        if (null === handler) {
+            throw new Error('No handler provided for route');
+        }
+        this.app.route(method, ...paths, ...metas, handler);
+    }
+    // HTTP method helpers
+    get(...pmh) {
+        this.route('GET', ...pmh);
+    }
+    post(...pmh) {
+        this.route('POST', ...pmh);
+    }
+    put(...pmh) {
+        this.route('PUT', ...pmh);
+    }
+    patch(...pmh) {
+        this.route('PATCH', ...pmh);
+    }
+    delete(...pmh) {
+        this.route('DELETE', ...pmh);
+    }
+}
+export function createRouteContext(app, ...basesAndMetas) {
+    return new RouteContext(app, ...basesAndMetas);
 }
 //# sourceMappingURL=application.js.map

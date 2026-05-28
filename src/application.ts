@@ -57,7 +57,7 @@ export class Application<T extends FrameworkMeta> {
   /**
    * Register a route. Supports multiple paths, metadata, and a single handler.
    */
-  private route(
+  public route(
     method: HttpMethod,
     ...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]
   ): void {
@@ -309,14 +309,7 @@ export class Application<T extends FrameworkMeta> {
       for await (const chunk of nodeReq) {
         chunks.push(chunk);
       }
-      const bodyStr = Buffer.concat(chunks).toString();
-      if (bodyStr) {
-        try {
-          req.body = JSON.parse(bodyStr);
-        } catch {
-          req.body = bodyStr;
-        }
-      }
+      req.body = Buffer.concat(chunks);
     }
 
     // Create response object
@@ -446,4 +439,87 @@ export class Application<T extends FrameworkMeta> {
  */
 export function createApp<T extends FrameworkMeta>(defaultMeta: T): Application<T> {
   return new Application<T>(defaultMeta);
+}
+
+export class RouteContext<T extends FrameworkMeta> {
+  private app: Application<T>;
+  private bases: string[];
+  private metas: Partial<T>[];
+  constructor(app: Application<T>, ...basesAndMetas: (string | Partial<T>)[]) {
+    this.app = app;
+    this.bases = [];
+    this.metas = [];
+    for (const item of basesAndMetas) {
+      if (typeof item === 'string') {
+        this.bases.push(item);
+      } else if (typeof item === 'object') {
+        this.metas.push(item);
+      }
+    }
+    if (this.bases.length === 0) {
+      this.bases.push('');
+    }
+  }
+  route(method: HttpMethod, ...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]) {
+    const paths: string[] = [];
+    const metas = Array.from(this.metas);
+    let handler: AsyncRequestHandler<T> | null = null;
+    for (const item of pmh) {
+      if (typeof item === 'string') {
+        for (const base of this.bases) {
+          const fullPath = `${base}${item}`;
+          paths.push(fullPath);
+        }
+      } else if (typeof item === 'function') {
+        if (handler) {
+          throw new Error('Multiple handlers provided for route');
+        }
+        handler = item;
+      } else if (typeof item === 'object') {
+        metas.push(item);
+      }
+    }
+    if (null === handler) {
+      throw new Error('No handler provided for route');
+    }
+    this.app.route(method, ...paths, ...metas, handler!);
+  }
+
+  // HTTP method helpers
+  get(
+    ...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]
+  ): void {
+    this.route('GET', ...pmh);
+  }
+
+  post(
+    ...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]
+  ): void {
+    this.route('POST', ...pmh);
+  }
+
+  put(
+    ...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]
+  ): void {
+    this.route('PUT', ...pmh);
+  }
+
+  patch(
+    ...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]
+  ): void {
+    this.route('PATCH', ...pmh);
+  }
+
+  delete(
+    ...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]
+  ): void {
+    this.route('DELETE', ...pmh);
+  }
+}
+
+export function createRouteContext<T extends FrameworkMeta>(
+  app: Application<T>,
+  ...basesAndMetas: (string | Partial<T>)[]
+): RouteContext<T> {
+  return new RouteContext<T>(app, ...basesAndMetas);
 }
