@@ -268,6 +268,23 @@ Full TypeScript support with strict typing:
 - Type-safe request/response objects
 - Compile-time validation of metadata interfaces
 
+## Breaking Changes
+
+### Version 0.5.0
+
+Added support for chunked responses. This came with significant rearchitecture,
+demanding a new major release number.
+
+### Version 0.4.0
+
+The handling of headers changed to ensure all header names are normalized to
+kebab case with initial caps `If-Modified-Since` or `Content-Type`.
+
+- `req.headers['content-type']` is now `req.headers.getHeader('Content-Type')`
+- `res.headers['content-type']` is now `res.getHeader('Content-Type')`
+
+Headers are also now stored as tuples so they always appear in insertion order.
+
 ## License
 
 ISC

@@ -1,4 +1,13 @@
-import { Response } from './types.js';
+import { ServerResponse } from 'http';
+import { Headers } from './headers.js';
+import { InitHeader, Response } from './types.js';
+import EventEmitter from 'events';
+
+interface ResponseEvents {
+  send: [data: Buffer, length: number],
+  sendChunk: [data: Buffer, length: number],
+  end: []
+}
 
 /**
  * Response implementation for Filament.
@@ -14,50 +23,128 @@ import { Response } from './types.js';
  *   .json({ success: true });
  * ```
  */
-export class ResponseImpl implements Response {
-  statusCode: number = 200;
-  headers: Record<string, string | string[]> = {};
-  body?: unknown;
-  headersSent: boolean = false;
+export class ResponseImpl
+  extends EventEmitter<ResponseEvents>
+  implements Response
+{
+  private _closed = false;
+  private _sendingInChunks = false;
+  private _statusCode = 200
+  private serverResponse:ServerResponse;
 
-  private onSend?: (res: Response) => void;
+  private headers = new Headers()
 
   /**
    * Creates a new response handler.
    * 
-   * @param onSend - Optional callback invoked when the response is sent to the client
+   * @param serverResponse - The underlying server response
    */
-  constructor(onSend?: (res: Response) => void) {
-    this.onSend = onSend;
+  constructor(serverResponse:ServerResponse) {
+    super()
+    this.serverResponse = serverResponse;
+  }
+
+  get closed(): boolean {
+    return this._closed;
   }
 
   /**
-   * Set the HTTP response status code.
-   * 
-   * @param code - HTTP status code
-   * @returns This response object for method chaining
+   * Returns all the headers. This object cannot be changed. Use addHeader and
+   * setHeader to change the response headers.
+   * @returns The headers
    */
-  status(code: number): Response {
-    this.statusCode = code;
-    return this;
+  get headerPairs(): readonly (readonly [string, string])[] {
+    return this.headers.headerPairs;
+  }
+
+  /** 
+   * Returns `true` if the response headers have been sent
+   */
+  get headersSent(): boolean {
+    return this.headers.headersSent || this.serverResponse.headersSent;
+  }
+
+  get sendingInChunks(): boolean {
+    return this._sendingInChunks;
+  }
+  
+  get statusCode(): number {
+    return this._statusCode;
+  }
+
+  set statusCode(newStatusCode: number) {
+    if (this.headersSent) {
+      throw Error('Cannot set the status code after it\'s already been sent');
+    } else {
+      this._statusCode = newStatusCode;
+    }
   }
 
   /**
-   * Set a response header.
+   * Add a response header. If a header with the name name already exists,
+   * another header will be added with the same name.
    * Headers must be set before sending the response.
    * 
    * @param name - Header name
    * @param value - Header value(s), can be a string or array of strings
-   * @returns This response object for method chaining
+   * @returns this object for chaining
    * @throws Error if headers have already been sent
    */
-  setHeader(name: string, value: string | string[]): Response {
+  addHeader(name: string, ...value: (string | string[])[]): Response {
     if (this.headersSent) {
-      throw new Error('Cannot set headers after they are sent');
+      throw Error('Cannot add a header after the headers have been sent');
     }
-    this.headers[name] = value;
+    this.headers.addHeader(name, value.flat());
     return this;
   }
+
+  /**
+   * Add response headers _en masse_. If a header with the same name already
+   * exists, another header will be added with the same name.
+   * Headers must be set before sending the response.
+   * 
+   * @param name - Header name
+   * @param value - Header value(s), can be a string or array of strings
+   * @returns this object for chaining
+   * @throws Error if headers have already been sent
+   */
+  addHeaders(...newHeaders:(InitHeader|InitHeader[])[]): Response {
+    if (this.headersSent) {
+      throw Error('Cannot add to headers after they have been sent');
+    }
+    this.headers.addHeaders(...newHeaders);
+    return this;
+  }
+
+  /**
+   * Send the response to the client with previously set status and headers.
+   * If nothing has been sent yet, sends an empty response.
+   * Can be called multiple times safely - subsequent calls are ignored.
+   */
+  end(): Promise<void> {
+    return new Promise<void>((resolve) => {
+      if (!this.closed) {
+        this.sendHeadersIfNotSentAlready();
+        this.emit('end');
+        this.serverResponse.end(() => {
+          this._closed = true;
+          resolve();
+        });
+      } else {
+        resolve();
+      }
+    });
+  }
+
+  /**
+   * Returns the value of a header. If there are multiple headers of the same
+   * name, this will return an array in insertion order.
+   * @param name the name of the header to retrieve.
+   * @returns the header value or values, or null if the header does not exist
+   */
+  getHeader(name: string):string|string[]|null {
+    return this.headers.getHeader(name);
+  }  
 
   /**
    * Send a JSON response with Content-Type: application/json header.
@@ -66,10 +153,12 @@ export class ResponseImpl implements Response {
    * @param data - Data to serialize as JSON
    * @throws Error if response has already been sent
    */
-  json(data: unknown): void {
-    this.setHeader('Content-Type', 'application/json');
-    this.body = JSON.stringify(data);
-    this.send(this.body as string);
+  json(data: unknown): Promise<void> {
+    if (this.closed) {
+      throw new Error('Cannot send json after the response has been closed');
+    }
+    this.headers.setHeader('Content-Type', 'application/json');
+    return this.send(data === undefined ? 'undefined' : JSON.stringify(data));
   }
 
   /**
@@ -79,28 +168,105 @@ export class ResponseImpl implements Response {
    * @param data - Response body as a string or buffer
    * @throws Error if response has already been sent
    */
-  send(data: string | Buffer): void {
-    if (this.headersSent) {
-      throw new Error('Cannot send response after it has been sent');
+  send(data: string | Buffer): Promise<void> {
+    if (this.closed) {
+      throw new Error('Cannot send data after the response has been closed');
     }
-    this.body = data;
-    this.headersSent = true;
-    if (this.onSend) {
-      this.onSend(this);
+    if (typeof data === 'string') {
+      data = Buffer.from(data);
     }
+    const byteLength = data.byteLength;
+
+    if (!this.sendingInChunks) {
+      this.headers.setHeader('Content-Length', byteLength.toString());
+    }
+    this.sendHeadersIfNotSentAlready();
+    this.emit('send', data, byteLength);
+    this.serverResponse.write(data);
+    return this.end();
   }
 
   /**
-   * Send the response to the client with previously set status and headers.
-   * If nothing has been sent yet, sends an empty response.
-   * Can be called multiple times safely - subsequent calls are ignored.
+   * Send a chunk of data to the client.
+   * @param data - Response chunk
+   * @throws Error if the response has already been sent
    */
-  end(): void {
-    if (!this.headersSent) {
-      this.headersSent = true;
-      if (this.onSend) {
-        this.onSend(this);
+  sendChunk(data: string | Buffer): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      if (this.closed) {
+        throw new Error('Cannot send data after the response has been closed');
       }
+      this.sendHeadersIfNotSentAlready();
+      this._sendingInChunks = true;
+      if (typeof data === 'string') {
+        data = Buffer.from(data);
+      }
+      this.emit('sendChunk', data, data.byteLength)
+      this.serverResponse.write(data, (error) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve();
+        }
+      });
+    })
+  }
+
+  private sendHeadersIfNotSentAlready() {
+    if (this.headersSent) {
+      return;
     }
+    this.serverResponse.writeHead(
+      this.statusCode,
+      this.headers.headerPairs.flat()
+    );
+    this.headers.headersSent = true;
+  }
+
+  /**
+   * Set a response header. If a header with the same name already exists, the
+   * header will be replaced with this one.
+   * Headers must be set before sending the response.
+   * 
+   * @param name - Header name
+   * @param value - Header value(s), can be a string or array of strings
+   * @returns this object for chaining
+   * @throws Error if headers have already been sent
+   */
+  setHeader(name: string, ...value: (string | string[])[]): Response {
+    if (this.headersSent) {
+      throw Error('Cannot set a header after the headers have been sent');
+    }
+    this.headers.setHeader(name, value.flat());
+    return this;
+  }
+  
+  /**
+   * Set response headers _en masse_. If a header with the same name already
+   * exists, the header will be replaced with this one.
+   * Headers must be set before sending the response.
+   * 
+   * @param name - Header name
+   * @param value - Header value(s), can be a string or array of strings
+   * @returns this object for chaining
+   * @throws Error if headers have already been sent
+   */
+  setHeaders(...newHeaders:(InitHeader|InitHeader[])[]): Response {
+    if (this.headersSent) {
+      throw Error('Cannot set headers after the headers have been sent');
+    }
+    this.headers.setHeaders(...newHeaders);
+    return this;
+  }
+ 
+  /**
+   * Set the HTTP response status code.
+   * 
+   * @param code - HTTP status code
+   * @returns This response object for method chaining
+   */
+  status(code: number): Response {
+    this.statusCode = code;
+    return this;
   }
 }

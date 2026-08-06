@@ -18,4 +18,29 @@ export function deepMerge(target, source) {
     }
     return result;
 }
+export function normalizeHeaderName(name) {
+    // Normalize to kebab case
+    name = name
+        .replace(/ /g, '-')
+        .replace(/([A-Z])/g, '-$1')
+        .replace(/\-+/g, '-')
+        .replace(/^\-/, '')
+        .toLowerCase();
+    // raise the case
+    let raiseNextCase = true;
+    let charArray = [];
+    for (let idx = 0; idx < name.length; idx++) {
+        let ca = name.charAt(idx);
+        if (raiseNextCase) {
+            ca = ca.toUpperCase();
+            raiseNextCase = false;
+        }
+        else if (ca === '-') {
+            raiseNextCase = true;
+        }
+        charArray.push(ca);
+    }
+    // initialCaps
+    return charArray.join('');
+}
 //# sourceMappingURL=tools.js.map

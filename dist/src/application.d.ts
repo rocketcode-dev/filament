@@ -83,7 +83,8 @@ export declare class Application<T extends FrameworkMeta> {
      */
     private handleRequest;
     /**
-     * Start the server
+     * Start the server. Returns a promise that resolves with the port number of
+     * the new server
      */
     listen(port: number): Promise<number>;
     /**

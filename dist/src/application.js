@@ -1,5 +1,6 @@
 import http from 'http';
 import { URL } from 'url';
+import { Headers, } from './types.js';
 import { ResponseImpl } from './response.js';
 import { pathToRegex, matchPath } from './router.js';
 import { deepMerge } from './tools.js';
@@ -219,7 +220,9 @@ export class Application {
         url.searchParams.forEach((value, key) => {
             const existing = query[key];
             if (existing) {
-                query[key] = Array.isArray(existing) ? [...existing, value] : [existing, value];
+                query[key] = Array.isArray(existing)
+                    ? [...existing, value]
+                    : [existing, value];
             }
             else {
                 query[key] = value;
@@ -228,7 +231,9 @@ export class Application {
         // Parse headers
         const headers = {};
         Object.entries(nodeReq.headers).forEach(([key, value]) => {
-            headers[key] = value;
+            if (value !== undefined) {
+                headers[key] = value;
+            }
         });
         // Create request object
         const req = {
@@ -236,7 +241,7 @@ export class Application {
             path,
             params,
             query,
-            headers,
+            headers: new Headers(headers),
             context: {}, // Initialize empty context
             endpointMeta: matchedRoute.meta,
             _startTime: Date.now(),
@@ -250,18 +255,7 @@ export class Application {
             req.body = Buffer.concat(chunks);
         }
         // Create response object
-        const res = new ResponseImpl((finalRes) => {
-            nodeRes.statusCode = finalRes.statusCode;
-            Object.entries(finalRes.headers).forEach(([key, value]) => {
-                nodeRes.setHeader(key, value);
-            });
-            if (finalRes.body) {
-                nodeRes.end(finalRes.body);
-            }
-            else {
-                nodeRes.end();
-            }
-        });
+        const res = new ResponseImpl(nodeRes);
         let hadError = false;
         try {
             // Filter applicable middleware (by path if specified)
@@ -294,11 +288,12 @@ export class Application {
         }
     }
     /**
-     * Start the server
+     * Start the server. Returns a promise that resolves with the port number of
+     * the new server
      */
     async listen(port) {
         return new Promise((resolve, reject) => {
-            this.server = http.createServer((req, res) => {
+            const server = http.createServer((req, res) => {
                 this.handleRequest(req, res).catch((err) => {
                     console.error('Unhandled error in request handler:', err);
                     if (!res.headersSent) {
@@ -307,7 +302,7 @@ export class Application {
                     }
                 });
             });
-            this.server.on('error', (err) => {
+            server.on('error', (err) => {
                 if (err.code === 'EADDRINUSE') {
                     reject(new Error(`Port ${port} is already in use`));
                 }
@@ -318,9 +313,21 @@ export class Application {
                     reject(new Error(`Failed to start server on port ${port}: ${err.message}`));
                 }
             });
-            this.server.listen(port, () => {
-                resolve(port);
+            server.listen(port, () => {
+                const address = server.address();
+                if (address) {
+                    if (typeof address === 'string') {
+                        resolve(parseInt(address.split(':').pop()));
+                    }
+                    else {
+                        resolve(address.port);
+                    }
+                }
+                else {
+                    reject(new Error('Failed to get server port'));
+                }
             });
+            this.server = server;
         });
     }
     /**

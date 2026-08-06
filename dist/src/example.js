@@ -11,7 +11,7 @@ const app = createApp(defaultMeta);
 // Authentication middleware - inspects endpointMeta
 app.use(async (req, res, next) => {
     if (req.endpointMeta.requiresAuth) {
-        const token = req.headers.authorization;
+        const token = req.headers.getHeader('authorization');
         if (!token) {
             res.status(401).json({ error: 'Unauthorized - No token provided' });
             return;

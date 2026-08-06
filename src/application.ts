@@ -2,6 +2,7 @@ import http from 'http';
 import { URL } from 'url';
 import {
   FrameworkMeta,
+  Headers,
   HttpMethod,
   Request,
   Response,
@@ -248,8 +249,14 @@ export class Application<T extends FrameworkMeta> {
   /**
    * Handle incoming HTTP request
    */
-  private async handleRequest(nodeReq: http.IncomingMessage, nodeRes: http.ServerResponse): Promise<void> {
-    const url = new URL(nodeReq.url || '/', `http://${nodeReq.headers.host || 'localhost'}`);
+  private async handleRequest(
+    nodeReq: http.IncomingMessage,
+    nodeRes: http.ServerResponse
+  ): Promise<void> {
+    const url = new URL(
+      nodeReq.url || '/',
+      `http://${nodeReq.headers.host || 'localhost'}`
+    );
     const method = (nodeReq.method || 'GET').toUpperCase() as HttpMethod;
     const path = url.pathname;
 
@@ -279,16 +286,20 @@ export class Application<T extends FrameworkMeta> {
     url.searchParams.forEach((value, key) => {
       const existing = query[key];
       if (existing) {
-        query[key] = Array.isArray(existing) ? [...existing, value] : [existing, value];
+        query[key] = Array.isArray(existing)
+          ? [...existing, value]
+          : [existing, value];
       } else {
         query[key] = value;
       }
     });
 
     // Parse headers
-    const headers: Record<string, string | string[] | undefined> = {};
+    const headers: Record<string, string | string[]> = {};
     Object.entries(nodeReq.headers).forEach(([key, value]) => {
-      headers[key] = value;
+      if (value !== undefined) {
+        headers[key] = value;
+      }
     });
 
     // Create request object
@@ -297,7 +308,7 @@ export class Application<T extends FrameworkMeta> {
       path,
       params,
       query,
-      headers,
+      headers: new Headers(headers),
       context: {}, // Initialize empty context
       endpointMeta: matchedRoute.meta,
       _startTime: Date.now(),
@@ -313,17 +324,7 @@ export class Application<T extends FrameworkMeta> {
     }
 
     // Create response object
-    const res = new ResponseImpl((finalRes) => {
-      nodeRes.statusCode = finalRes.statusCode;
-      Object.entries(finalRes.headers).forEach(([key, value]) => {
-        nodeRes.setHeader(key, value);
-      });
-      if (finalRes.body) {
-        nodeRes.end(finalRes.body);
-      } else {
-        nodeRes.end();
-      }
-    });
+    const res = new ResponseImpl(nodeRes);
 
     let hadError = false;
 
@@ -361,11 +362,12 @@ export class Application<T extends FrameworkMeta> {
   }
 
   /**
-   * Start the server
+   * Start the server. Returns a promise that resolves with the port number of
+   * the new server
    */
   async listen(port: number): Promise<number> {
     return new Promise((resolve, reject) => {
-      this.server = http.createServer((req, res) => {
+      const server = http.createServer((req, res) => {
         this.handleRequest(req, res).catch((err) => {
           console.error('Unhandled error in request handler:', err);
           if (!res.headersSent) {
@@ -375,7 +377,7 @@ export class Application<T extends FrameworkMeta> {
         });
       });
 
-      this.server.on('error', (err: NodeJS.ErrnoException) => {
+      server.on('error', (err: NodeJS.ErrnoException) => {
         if (err.code === 'EADDRINUSE') {
           reject(new Error(`Port ${port} is already in use`));
         } else if (err.code === 'EACCES') {
@@ -385,9 +387,20 @@ export class Application<T extends FrameworkMeta> {
         }
       });
 
-      this.server.listen(port, () => {
-        resolve(port);
+      server.listen(port, () => {
+        const address = server.address();
+        if (address) {
+          if (typeof address === 'string') {
+            resolve(parseInt(address.split(':').pop()!));
+          } else {
+            resolve(address.port);
+          }
+        } else {
+          reject(new Error('Failed to get server port'))
+        }
       });
+
+      this.server = server;
     });
   }
 

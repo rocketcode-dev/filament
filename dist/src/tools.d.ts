@@ -6,4 +6,5 @@
  * @returns The merged object
  */
 export declare function deepMerge<T>(target: T, source: Partial<T>): T;
+export declare function normalizeHeaderName(name: string): string;
 //# sourceMappingURL=tools.d.ts.map
