@@ -1,4 +1,9 @@
 import { createApp } from '../src/index.js';
+import { parseArgs } from 'node:util';
+const { port: portOption, silent = false } = parseArgs({
+    options: { port: { type: 'string' }, silent: { type: 'boolean' } },
+}).values;
+const port = Number(portOption ?? 0);
 const app = createApp({
     rateLimit: {
         requests: 60,
@@ -161,7 +166,7 @@ app.onTransform(async (req, res) => {
     }
 });
 // Performance logging
-if (!(process.env.IS_TEST)) {
+if (!silent) {
     app.onFinalize(async (req, res) => {
         const duration = Date.now() - (req._startTime || Date.now());
         const priority = req.endpointMeta.priority;
@@ -170,10 +175,9 @@ if (!(process.env.IS_TEST)) {
             `${res.statusCode} - ${duration}ms ${cached ? '(cached)' : ''}`);
     });
 }
-const PORT = 3003;
-app.listen(PORT).then(() => {
-    if (!(process.env.IS_TEST)) {
-        console.log(`\n⚡ Performance controls example running on http://localhost:${PORT}`);
+app.listen(port).then(port => {
+    if (!silent) {
+        console.log(`\n⚡ Performance controls example running on http://localhost:${port}`);
         console.log('\nEndpoints:');
         console.log('  GET  /products              - High rate limit, cached (5min)');
         console.log('  POST /orders                - Low rate limit, high priority');

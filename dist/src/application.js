@@ -152,18 +152,33 @@ export class Application {
      * Execute error handlers
      */
     async executeErrorHandlers(err, req, res) {
-        for (const handler of this.errorHandlers) {
+        let currentIndex = 0;
+        const defaultHandler = async () => {
+            // Once headers have escaped, the status and body can no longer be
+            // replaced. The server-level error path will terminate the connection.
+            if (res.committed || res.headers.frozen) {
+                return;
+            }
+            res.status(500);
+            res.headers.set('Content-Type', 'application/json');
+            res.body = JSON.stringify({ error: 'Internal Server Error' });
+            await res.end();
+        };
+        const next = async () => {
+            if (currentIndex >= this.errorHandlers.length) {
+                await defaultHandler();
+                return;
+            }
+            const handler = this.errorHandlers[currentIndex++];
             try {
-                await handler(err, req, res, async () => { });
+                await handler(err, req, res, next);
             }
             catch (handlerError) {
                 console.error('Error in error handler:', handlerError);
+                await next();
             }
-        }
-        // If no error handler sent a response, send default error
-        if (!res.headers.frozen) {
-            await res.status(500).json({ error: 'Internal Server Error' });
-        }
+        };
+        await next();
     }
     /**
      * Execute response transformers
@@ -177,7 +192,6 @@ export class Application {
                 await transformer(req, res);
             }
             catch (err) {
-                console.error('Error in response transformer:', err);
                 throw err;
             }
         }
@@ -262,7 +276,6 @@ export class Application {
         }
         // Create response object
         const res = new Response(nodeRes, { hasTransformers: !!this.transformers.length });
-        let hadError = false;
         try {
             // Filter applicable middleware (by path if specified)
             const applicableMiddleware = this.middlewares
@@ -275,16 +288,19 @@ export class Application {
                 // Execute route handler
                 await matchedRoute.handler(req, res, async () => { });
             }
-            // Execute response transformers (only with a 2xx status code, with
-            // streaming mode disabled)
-            if (!res.committed && res.statusCode >= 200 && res.statusCode < 300) {
+            // The application owns the route boundary: handlers may end explicitly,
+            // but an implicit end is supplied when they return without doing so.
+            await res.end();
+            // Transform every buffered response, including explicit error
+            // responses. Exceptions take the catch path below and are not passed
+            // through the transformer chain again.
+            if (!res.streaming && !res.committed) {
                 await this.executeTransformers(req, res);
             }
             // make sure the response is over.
             await res.commit();
         }
         catch (err) {
-            hadError = true;
             await this.executeErrorHandlers(err, req, res);
         }
         finally {
@@ -292,7 +308,7 @@ export class Application {
             await this.executeFinalizers(req, res);
             // Ensure response is sent
             await res.end();
-            res.commit();
+            await res.commit();
         }
     }
     /**

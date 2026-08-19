@@ -1,4 +1,10 @@
 import { createApp, FrameworkMeta } from '../src/index.js';
+import { parseArgs } from 'node:util';
+
+const { port: portOption, silent = false } = parseArgs({
+  options: { port: { type: 'string' }, silent: { type: 'boolean' } },
+}).values;
+const port = Number(portOption ?? 0);
 
 /**
  * Example 4: Distributed Tracing and Observability
@@ -153,7 +159,7 @@ app.use(async (req, res, next) => {
         }
       : `[${req.endpointMeta.service}] ${req.method} ${req.path}`;
     
-    process.env.IS_TEST ||
+    silent ||
       console.log(structured ? JSON.stringify(logEntry) : logEntry);
   }
   
@@ -305,15 +311,14 @@ app.onFinalize(async (req, res) => {
         }
       : `[${req.endpointMeta.service}] ${req.method} ${req.path} - ${res.statusCode} - ${duration}ms`;
     
-    process.env.IS_TEST ||
+    silent ||
       console.log(structured ? JSON.stringify(logEntry) : logEntry);
   }
 });
 
-const PORT = 3004;
-app.listen(PORT).then(() => {
-  if (!(process.env.IS_TEST)) {
-    console.log(`\n🔍 Observability example running on http://localhost:${PORT}`);
+app.listen(port).then(port => {
+  if (!silent) {
+    console.log(`\n🔍 Observability example running on http://localhost:${port}`);
     console.log('\nService Endpoints:');
     console.log('  GET  /users/:id          - User service (full tracing)');
     console.log('  POST /payments           - Payment service (10% sample rate, sensitive)');

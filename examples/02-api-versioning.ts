@@ -1,4 +1,10 @@
 import { createApp, FrameworkMeta } from '../src/index.js';
+import { parseArgs } from 'node:util';
+
+const { port: portOption, silent = false } = parseArgs({
+  options: { port: { type: 'string' }, silent: { type: 'boolean' } },
+}).values;
+const port = Number(portOption ?? 0);
 
 /**
  * Example 2: API Versioning
@@ -145,7 +151,7 @@ app.onTransform(async (req, res) => {
 });
 
 // Log deprecated endpoint usage
-if (!(process.env.IS_TEST)) {
+if (!silent) {
   app.onFinalize(async (req, res) => {
     if (req.endpointMeta.deprecated) {
       console.warn(`⚠️  Deprecated endpoint used: ${req.method} ${req.path}`);
@@ -153,10 +159,9 @@ if (!(process.env.IS_TEST)) {
   });
 }
 
-const PORT = 3002;
-app.listen(PORT).then(() => {
-  if (!(process.env.IS_TEST)) {
-    console.log(`\n🔄 API Versioning example running on http://localhost:${PORT}`);
+app.listen(port).then(port => {
+  if (!silent) {
+    console.log(`\n🔄 API Versioning example running on http://localhost:${port}`);
     console.log('\nV1 Endpoints (deprecated):');
     console.log('  GET /api/v1/user/:id          - Minimal user data');
     console.log('  GET /api/v1/user/:id/profile  - Standard user profile');
@@ -164,8 +169,8 @@ app.listen(PORT).then(() => {
     console.log('  GET /api/v2/user/:id          - Standard user data');
     console.log('  GET /api/v2/user/:id/full     - Detailed user data');
     console.log('\nTry:');
-    console.log('  curl http://localhost:3002/api/v1/user/123');
-    console.log('  curl http://localhost:3002/api/v2/user/123');
-    console.log('  curl http://localhost:3002/api/v2/user/123/full\n');
+    console.log(`  curl http://localhost:${port}/api/v1/user/123`);
+    console.log(`  curl http://localhost:${port}/api/v2/user/123`);
+    console.log(`  curl http://localhost:${port}/api/v2/user/123/full\n`);
   }
 });

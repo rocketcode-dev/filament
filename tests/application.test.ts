@@ -481,6 +481,130 @@ suite('Application', () => {
         }).deepEqual;
     });
 
+    TestBattery.test('should implicitly end a handler response', (battery) => {
+      const app = createApp<TestMeta>({ requiresAuth: false });
+
+      app.get('/implicit-end', {}, async (req, res) => {
+        res.body = 'implicitly closed';
+      });
+
+      const responsePromise = app.listen(9890).then(async port => {
+        const response = await fetch(`http://localhost:${port}/implicit-end`);
+        const body = await response.text();
+        await app.close();
+        return { status: response.status, body };
+      });
+
+      battery.test('handler return should close and commit its response')
+        .value(responsePromise)
+        .value({ status: 200, body: 'implicitly closed' }).deepEqual;
+    });
+
+    TestBattery.test('should use the default error handler', (battery) => {
+      const app = createApp<TestMeta>({ requiresAuth: false });
+
+      app.get('/default-error', {}, async () => {
+        throw new Error('private details');
+      });
+
+      const responsePromise = app.listen(9891).then(async port => {
+        const response = await fetch(`http://localhost:${port}/default-error`);
+        const body = await response.json();
+        await app.close();
+        return { status: response.status, body };
+      });
+
+      battery.test('default error response should hide exception details')
+        .value(responsePromise)
+        .value({
+          status: 500,
+          body: { error: 'Internal Server Error' },
+        }).deepEqual;
+    });
+
+    TestBattery.test(
+      'should replace an uncommitted response after transformer failure',
+      battery => {
+        const app = createApp<TestMeta>({ requiresAuth: false });
+
+        app.onTransform(async () => {
+          throw new Error('Transform failed');
+        });
+        app.get('/transform-error', {}, async (req, res) => {
+          await res.json({ unsafe: 'partial response' });
+        });
+
+        const responsePromise = app.listen(9892).then(async port => {
+          const response = await fetch(`http://localhost:${port}/transform-error`);
+          const body = await response.json();
+          await app.close();
+          return { status: response.status, body };
+        });
+
+        battery.test('default error should replace buffered body')
+          .value(responsePromise)
+          .value({
+            status: 500,
+            body: { error: 'Internal Server Error' },
+          }).deepEqual;
+      },
+    );
+
+    TestBattery.test(
+      'should transform HTTP errors but not exception responses',
+      battery => {
+        const app = createApp<TestMeta>({ requiresAuth: false });
+        let transformations = 0;
+
+        app.onTransform(async (req, res) => {
+          transformations++;
+          res.body = JSON.stringify({ transformed: res.statusCode });
+        });
+        app.get('/http-error', {}, async (req, res) => {
+          await res.status(404).json({ error: 'Not Found' });
+        });
+        app.get('/exception', {}, async () => {
+          throw new Error('Unexpected failure');
+        });
+
+        const responsePromise = app.listen(9893).then(async port => {
+          const httpErrorResponse = await fetch(
+            `http://localhost:${port}/http-error`,
+          );
+          const exceptionResponse = await fetch(
+            `http://localhost:${port}/exception`,
+          );
+          const result = {
+            httpError: {
+              status: httpErrorResponse.status,
+              body: await httpErrorResponse.json(),
+            },
+            exception: {
+              status: exceptionResponse.status,
+              body: await exceptionResponse.json(),
+            },
+            transformations,
+          };
+          await app.close();
+          return result;
+        });
+
+        battery.test('only explicit HTTP error should be transformed')
+          .value(responsePromise)
+          .value({
+            httpError: {
+              status: 404,
+              body: { transformed: 404 },
+            },
+            exception: {
+              status: 500,
+              body: { error: 'Internal Server Error' },
+            },
+            transformations: 1,
+          }).deepEqual;
+      },
+    );
+
     TestBattery.test('should call finalizers after response', (battery) => {
       const app = createApp<TestMeta>({ requiresAuth: false });
       let finalizerCalled = false;

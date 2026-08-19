@@ -59,6 +59,9 @@ export declare class Response extends EventEmitter<ResponseEvents> {
      * possible for anything. Stops transforms.
      */
     private _committed;
+    /** The shared completion promises for idempotent lifecycle operations. */
+    private _endPromise?;
+    private _commitPromise?;
     /**
      * Creates a new response handler.
      *

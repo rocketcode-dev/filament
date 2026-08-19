@@ -1,4 +1,10 @@
 import { createApp, FrameworkMeta } from '../src/index.js';
+import { parseArgs } from 'node:util';
+
+const { port: portOption, silent = false } = parseArgs({
+  options: { port: { type: 'string' }, silent: { type: 'boolean' } },
+}).values;
+const port = Number(portOption ?? 0);
 
 /**
  * Example 5: Content Negotiation and Response Transformation
@@ -250,21 +256,20 @@ app.onTransform(async (req, res) => {
   }
 });
 
-const PORT = 3005;
-app.listen(PORT).then(() => {
-  if (!(process.env.IS_TEST)) {
-    console.log(`\n🎨 Content negotiation example running on http://localhost:${PORT}`);
+app.listen(port).then(port => {
+  if (!silent) {
+    console.log(`\n🎨 Content negotiation example running on http://localhost:${port}`);
     console.log('\nEndpoints:');
     console.log('  GET /books           - List books (JSON, XML, CSV, HTML)');
     console.log('  GET /books/:id       - Single book (JSON, XML)');
     console.log('  GET /stats           - Statistics (JSON only)');
     console.log('\nTry different formats:');
-    console.log('  curl http://localhost:3005/books');
-    console.log('  curl http://localhost:3005/books?format=xml');
-    console.log('  curl http://localhost:3005/books?format=csv');
-    console.log('  curl http://localhost:3005/books?format=html');
-    console.log('  curl -H "Accept: application/xml" http://localhost:3005/books');
-    console.log('  curl -H "Accept: text/csv" http://localhost:3005/books');
-    console.log('\nOpen http://localhost:3005/books?format=html in your browser!\n');
+    console.log(`  curl http://localhost:${port}/books`);
+    console.log(`  curl http://localhost:${port}/books?format=xml`);
+    console.log(`  curl http://localhost:${port}/books?format=csv`);
+    console.log(`  curl http://localhost:${port}/books?format=html`);
+    console.log(`  curl -H "Accept: application/xml" http://localhost:${port}/books`);
+    console.log(`  curl -H "Accept: text/csv" http://localhost:${port}/books`);
+    console.log(`\nOpen http://localhost:${port}/books?format=html in your browser!\n`);
   }
 });

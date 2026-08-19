@@ -1,4 +1,9 @@
 import { createApp } from '../src/index.js';
+import { parseArgs } from 'node:util';
+const { port: portOption, silent = false } = parseArgs({
+    options: { port: { type: 'string' }, silent: { type: 'boolean' } },
+}).values;
+const port = Number(portOption ?? 0);
 const app = createApp({
     requiresAuth: false,
     rateLimit: 100,
@@ -111,17 +116,16 @@ app.onError(async (err, req, res) => {
     console.error('Error:', err);
     res.status(500).json({ error: 'Internal server error' });
 });
-// Request logging (don't do this when running tests)
-if (!(process.env.IS_TEST)) {
+// Request logging
+if (!silent) {
     app.onFinalize(async (req, res) => {
         const user = req.user;
         console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} - ${res.statusCode} ${user ? `(user: ${user.id})` : '(anonymous)'}`);
     });
 }
-const PORT = 3001;
-app.listen(PORT).then(() => {
-    if (!(process.env.IS_TEST)) {
-        console.log(`\n📝 Blog API running on http://localhost:${PORT}`);
+app.listen(port).then(port => {
+    if (!silent) {
+        console.log(`\n📝 Blog API running on http://localhost:${port}`);
         console.log('\nEndpoints:');
         console.log('  GET    /posts          - List all posts (public)');
         console.log('  GET    /posts/:id      - Get post by ID (public)');

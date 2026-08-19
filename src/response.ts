@@ -71,6 +71,10 @@ export class Response extends EventEmitter<ResponseEvents> {
    */
   private _committed = false;
 
+  /** The shared completion promises for idempotent lifecycle operations. */
+  private _endPromise?: Promise<void>;
+  private _commitPromise?: Promise<void>;
+
   /**
    * Creates a new response handler.
    *
@@ -199,31 +203,37 @@ export class Response extends EventEmitter<ResponseEvents> {
     if (!this.closed) {
       throw new Error('Cannot commit an open response');
     }
-    return new Promise((resolve, reject) => {
-      if (this.streaming && !this.committed) {
+    if (this._commitPromise) {
+      return this._commitPromise;
+    }
+    if (this.streaming) {
+      this._commitPromise = (this._endPromise || Promise.resolve()).then(() => {
         this._committed = true;
-      } else if (!this.committed) {
+      });
+      return this._commitPromise;
+    }
+
+    const b = this.body;
+    this.sendHeadersIfNotSentAlready();
+    this._body = null;
+    this._commitPromise = new Promise((resolve, reject) => {
+      const finish = () => {
         this._committed = true;
-        const b = this.body;
-        this.sendHeadersIfNotSentAlready();
-        this._body = null;
-        if ( b === null) {
-          this.serverResponse.end(resolve);
-        } else {
-          this.serverResponse.write(b, (err) => {
-            if (err) {
-              reject(err);
-            } else {
-              this.serverResponse.end(() => {
-                resolve();
-              });
-            }
-          });
-        }
-      } else {
         resolve();
+      };
+      if (b === null) {
+        this.serverResponse.end(finish);
+      } else {
+        this.serverResponse.write(b, (err) => {
+          if (err) {
+            reject(err);
+          } else {
+            this.serverResponse.end(finish);
+          }
+        });
       }
-    })
+    });
+    return this._commitPromise;
   }
 
   /**
@@ -232,23 +242,23 @@ export class Response extends EventEmitter<ResponseEvents> {
    * Can be called multiple times safely - subsequent calls are ignored.
    */
   end(): Promise<void> {
-    return new Promise<void>((resolve) => {
-      if (this._closed === true) {
-        resolve()
-      } else {
-        this.prepareToSendData(true);
-        this.emit('end');
-        this._closed = true;
-        if (this.streaming) {
-          this.serverResponse.end(() => {
-            resolve();
-            this.commit();
-          });
-        } else {
+    if (this._endPromise) {
+      return this._endPromise;
+    }
+    this.prepareToSendData(true);
+    this.emit('end');
+    this._closed = true;
+    if (this.streaming) {
+      this._endPromise = new Promise<void>((resolve) => {
+        this.serverResponse.end(() => {
+          this._committed = true;
           resolve();
-        }
-      }
-    });
+        });
+      });
+    } else {
+      this._endPromise = Promise.resolve();
+    }
+    return this._endPromise;
   }
 
   /**

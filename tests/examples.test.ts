@@ -28,7 +28,6 @@ const compiler = resolve(projectRoot, 'node_modules/typescript/bin/tsc');
 interface Example {
   name: string;
   source: string;
-  port: number;
 }
 
 interface Compilation {
@@ -46,11 +45,11 @@ interface ExampleResponse {
 }
 
 const examples = {
-  blog: { name: 'Blog API', source: 'examples/01-blog-api.ts', port: 3001 },
-  versioning: { name: 'API Versioning', source: 'examples/02-api-versioning.ts', port: 3002 },
-  performance: { name: 'Performance Controls', source: 'examples/03-performance-controls.ts', port: 3003 },
-  observability: { name: 'Observability', source: 'examples/04-observability.ts', port: 3004 },
-  content: { name: 'Content Negotiation', source: 'examples/05-content-negotiation.ts', port: 3005 },
+  blog: { name: 'Blog API', source: 'examples/01-blog-api.ts' },
+  versioning: { name: 'API Versioning', source: 'examples/02-api-versioning.ts' },
+  performance: { name: 'Performance Controls', source: 'examples/03-performance-controls.ts' },
+  observability: { name: 'Observability', source: 'examples/04-observability.ts' },
+  content: { name: 'Content Negotiation', source: 'examples/05-content-negotiation.ts' },
 } satisfies Record<string, Example>;
 
 const compilations = new Map<string, Promise<Compilation>>();
@@ -133,6 +132,20 @@ async function stopProcess(child: ChildProcess): Promise<void> {
   await exited;
 }
 
+async function findAvailablePort(): Promise<number> {
+  const server = net.createServer();
+  await new Promise<void>((resolveListen, rejectListen) => {
+    server.once('error', rejectListen);
+    server.listen(0, '127.0.0.1', resolveListen);
+  });
+  const address = server.address();
+  const port = typeof address === 'object' && address ? address.port : 0;
+  await new Promise<void>((resolveClose, rejectClose) => {
+    server.close(error => error ? rejectClose(error) : resolveClose());
+  });
+  return port;
+}
+
 async function waitForServer(
   child: ChildProcess,
   port: number,
@@ -177,9 +190,13 @@ async function withExample(
   }
 
   let output = '';
-  const child = spawn(process.execPath, [compilation.outputFile], {
+  const port = await findAvailablePort();
+  const child = spawn(process.execPath, [
+    compilation.outputFile,
+    '--port', String(port),
+    '--silent',
+  ], {
     cwd: compilation.directory,
-    env: { ...process.env, IS_TEST: 'true' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   child.stdout?.on('data', chunk => {
@@ -193,10 +210,10 @@ async function withExample(
   });
 
   try {
-    await waitForServer(child, example.port, () => output);
+    await waitForServer(child, port, () => output);
     await run(async (path, init = {}) => {
       const response = await fetch(
-        `http://127.0.0.1:${example.port}${path}`,
+        `http://127.0.0.1:${port}${path}`,
         init,
       );
       const text = await response.text();
