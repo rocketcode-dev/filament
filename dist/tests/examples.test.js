@@ -9,7 +9,10 @@ import { suite } from 'node:test';
 import TestBattery from 'test-battery';
 const DO_SUITE = 'all';
 function doSuite(suiteName, suite) {
-    if (DO_SUITE === 'all' || DO_SUITE === suiteName) {
+    if (DO_SUITE === 'none') {
+        return undefined;
+    }
+    else if (DO_SUITE === 'all' || DO_SUITE === suiteName) {
         return suite;
     }
     else {

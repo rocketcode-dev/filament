@@ -95,9 +95,9 @@ export declare class Application<T extends FrameworkMeta> {
 /**
  * Factory function to create a new Filament application.
  *
- * Creates an Application instance with the specified metadata type and default metadata values.
- * The metadata type extends {@link FrameworkMeta} and defines the shape of metadata available
- * to all route handlers and middleware.
+ * Creates an Application instance with the specified metadata type and default
+ * metadata values. The metadata type extends {@link FrameworkMeta} and defines
+ * the shape of metadata available to all route handlers and middleware.
  *
  * @template T - The application metadata type that extends FrameworkMeta
  * @param defaultMeta - Default metadata object shared across all routes.

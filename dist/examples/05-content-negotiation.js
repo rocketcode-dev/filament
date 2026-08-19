@@ -137,11 +137,9 @@ app.get('/stats', {
 app.onTransform(async (req, res) => {
     const format = req.responseFormat;
     const { prettyPrint, includeMetadata } = req.endpointMeta;
-    console.log('TRANSFORM');
-    if (!res.body)
-        return;
+    const body = res.body?.toString() || '';
     try {
-        const data = JSON.parse(res.body.toString());
+        const data = JSON.parse(body);
         let transformed;
         let contentType;
         // Wrap with metadata if needed
@@ -180,7 +178,7 @@ app.onTransform(async (req, res) => {
                 break;
         }
         res.headers.set('Content-Type', contentType);
-        // res.body = transformed;
+        res.body = transformed;
     }
     catch (e) {
         // If transformation fails, leave as-is

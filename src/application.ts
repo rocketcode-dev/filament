@@ -184,6 +184,9 @@ export class Application<T extends FrameworkMeta> {
     let currentIndex = 0;
 
     const next = async (): Promise<void> => {
+      if (res.closed) {
+        return;
+      }
       if (currentIndex >= middlewares.length) {
         return;
       }
@@ -212,16 +215,20 @@ export class Application<T extends FrameworkMeta> {
     }
 
     // If no error handler sent a response, send default error
-    if (!res.headers.isFrozen) {
-      res.status(500).json({ error: 'Internal Server Error' });
+    if (!res.headers.frozen) {
+      await res.status(500).json({ error: 'Internal Server Error' });
     }
   }
 
   /**
    * Execute response transformers
    */
-  private async executeTransformers(req: Request<T>, res: Response): Promise<void> {
+  private async executeTransformers(req: Request<T>, res: Response)
+  : Promise<void> {
     for (const transformer of this.transformers) {
+      if (res.committed) {
+        break;
+      }
       try {
         await transformer(req, res);
       } catch (err) {
@@ -234,7 +241,8 @@ export class Application<T extends FrameworkMeta> {
   /**
    * Execute finalizers
    */
-  private async executeFinalizers(req: Request<T>, res: Response): Promise<void> {
+  private async executeFinalizers(req: Request<T>, res: Response)
+  : Promise<void> {
     for (const finalizer of this.finalizers) {
       try {
         await finalizer(req, res);
@@ -323,7 +331,10 @@ export class Application<T extends FrameworkMeta> {
     }
 
     // Create response object
-    const res = new Response(nodeRes);
+    const res = new Response(
+      nodeRes,
+      { hasTransformers: !!this.transformers.length }
+    );
 
     let hadError = false;
 
@@ -337,15 +348,19 @@ export class Application<T extends FrameworkMeta> {
       await this.executeMiddlewareChain(req, res, applicableMiddleware);
 
       // If response already sent by middleware, skip handler
-      if (!res.headers.isFrozen) {
+      if (!res.closed) {
         // Execute route handler
         await matchedRoute.handler(req, res, async () => {});
-
-        // Execute response transformers (only on success)
-        if (!res.headers.isFrozen) {
-          await this.executeTransformers(req, res);
-        }
       }
+
+      // Execute response transformers (only with a 2xx status code, with
+      // streaming mode disabled)
+      if (!res.committed && res.statusCode >= 200 && res.statusCode < 300) {
+        await this.executeTransformers(req, res);
+      }
+
+      // make sure the response is over.
+      await res.commit();
     } catch (err) {
       hadError = true;
       await this.executeErrorHandlers(err as Error, req, res);
@@ -354,9 +369,8 @@ export class Application<T extends FrameworkMeta> {
       await this.executeFinalizers(req, res);
 
       // Ensure response is sent
-      if (!res.headers.isFrozen) {
-        res.end();
-      }
+      await res.end();
+      res.commit();
     }
   }
 
@@ -423,9 +437,9 @@ export class Application<T extends FrameworkMeta> {
 /**
  * Factory function to create a new Filament application.
  * 
- * Creates an Application instance with the specified metadata type and default metadata values.
- * The metadata type extends {@link FrameworkMeta} and defines the shape of metadata available
- * to all route handlers and middleware.
+ * Creates an Application instance with the specified metadata type and default
+ * metadata values. The metadata type extends {@link FrameworkMeta} and defines
+ * the shape of metadata available to all route handlers and middleware.
  * 
  * @template T - The application metadata type that extends FrameworkMeta
  * @param defaultMeta - Default metadata object shared across all routes.
@@ -449,7 +463,8 @@ export class Application<T extends FrameworkMeta> {
  * });
  * ```
  */
-export function createApp<T extends FrameworkMeta>(defaultMeta: T): Application<T> {
+export function createApp<T extends FrameworkMeta>(defaultMeta: T)
+: Application<T> {
   return new Application<T>(defaultMeta);
 }
 
@@ -472,7 +487,10 @@ export class RouteContext<T extends FrameworkMeta> {
       this.bases.push('');
     }
   }
-  route(method: HttpMethod, ...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]) {
+  route(
+    method: HttpMethod,
+    ...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]
+  ) {
     const paths: string[] = [];
     const metas = Array.from(this.metas);
     let handler: AsyncRequestHandler<T> | null = null;

@@ -42,7 +42,7 @@ const defaultNonRepeatingHeaders = {
 };
 export class Headers {
     constructor(headerRepeatability, ...initialHeaders) {
-        this.headersFrozen = false;
+        this._frozen = false;
         this._headerPairs = [];
         this.headerRepeatability = typeof headerRepeatability === 'string'
             ? { defaultNonRepeatableSet: headerRepeatability }
@@ -109,12 +109,12 @@ export class Headers {
         }
         return Object.freeze(result);
     }
-    get isFrozen() {
-        return this.headersFrozen;
+    get frozen() {
+        return this._frozen;
     }
-    set isFrozen(freeze) {
+    set frozen(freeze) {
         if (freeze === true) {
-            this.headersFrozen = freeze;
+            this._frozen = freeze;
         }
         else {
             throw 'Cannot unfreeze headers';
@@ -177,7 +177,7 @@ export class Headers {
         }
     }
     checkFrozen() {
-        if (this.isFrozen) {
+        if (this.frozen) {
             throw new Error('Cannot change headers after they are frozen');
         }
     }

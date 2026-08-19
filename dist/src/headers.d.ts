@@ -20,7 +20,7 @@ export type HeaderRepeatability = {
     repeatable?: string | string[];
 };
 export declare class Headers {
-    private headersFrozen;
+    private _frozen;
     private _headerPairs;
     private headerRepeatability;
     constructor(headerRepeatability: HeaderRepeatability | HeaderSetEnum, ...initialHeaders: (InitHeader | InitHeader[])[]);
@@ -37,8 +37,8 @@ export declare class Headers {
      * @returns The headers
      */
     get headerPairs(): readonly (readonly [string, string])[];
-    get isFrozen(): boolean;
-    set isFrozen(freeze: boolean);
+    get frozen(): boolean;
+    set frozen(freeze: boolean);
     /**
      * Add a response header. If a header with the name name already exists,
      * another header will be added with the same name.

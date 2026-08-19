@@ -8,11 +8,13 @@ import { promisify } from 'node:util';
 import { test, suite } from 'node:test';
 import TestBattery from 'test-battery';
 
-type SuiteEnum = 'all' |
+type SuiteEnum = 'all' | 'none' |
   'blog'|'versioning'|'performance'|'observability'|'content-negotiation';
 const DO_SUITE: SuiteEnum = 'all';
 function doSuite(suiteName:SuiteEnum, suite:test.SuiteFn) {
-  if (DO_SUITE === 'all' || DO_SUITE === suiteName) {
+  if (DO_SUITE === 'none') {
+    return undefined;
+  } else if (DO_SUITE === 'all' || DO_SUITE === suiteName) {
     return suite;
   } else {
     return undefined;

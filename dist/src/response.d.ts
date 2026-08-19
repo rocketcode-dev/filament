@@ -6,10 +6,13 @@ interface ResponseEvents {
     sendChunk: [data: Buffer, length: number];
     end: [];
 }
+export interface ResponseContext {
+    hasTransformers?: boolean;
+}
 /**
  * Response implementation for Filament.
  *
- * This class implements the {@link Response} interface and provides methods for
+ * This class provides methods for
  * setting status codes, headers, and sending data to the client.
  * Supports method chaining for a fluent API.
  *
@@ -21,28 +24,77 @@ interface ResponseEvents {
  * ```
  */
 export declare class Response extends EventEmitter<ResponseEvents> {
-    private bodyBuffers;
-    private _closed;
-    private _sendingInChunks;
-    private _statusCode;
+    /**
+     * The NodeJS native HTTP(S) response
+     */
     private serverResponse;
+    private context;
+    private _statusCode;
+    private _body;
     private _headers;
+    /**
+     * Set to `true` if a chunk has been sent in streaming mode. This will
+     * prevent `send()` from calculating `Content-Length`.
+     */
+    private _chunked;
+    /**
+     * Streaming mode. If this is `undefined` it is calculated based on the
+     * application context.
+     */
+    private _streaming;
+    /**
+     * Set to `true` when the streaming mode cannot be changed anymore.
+     */
+    private _streamingModeLocked;
+    /**
+     * Set to `true` by `this.end()` and `'pending'` by `this.send()`. Whenever
+     * this is truthy, the `this.json()`, `this.send()` and `this.sendChunk()`
+     * methods can no longer be used to change the body. However, when streaming
+     * mode is disabled, you can change the body by setting `this.body` to the
+     * new body. Note the `this.closed` accessor treats `'pending'` as `true`.
+     */
+    private _closed;
+    /**
+     * Set to true when all data has been truly sent, no modifications are
+     * possible for anything. Stops transforms.
+     */
+    private _committed;
     /**
      * Creates a new response handler.
      *
      * @param serverResponse - The underlying server response
      */
-    constructor(serverResponse: ServerResponse);
+    constructor(serverResponse: ServerResponse, context?: ResponseContext);
+    /**
+     * Returns the body of the response as it stands at this moment. Only works
+     * when the streaming mode is disabled and locked. Otherwise, it'll return
+     * `null`
+     * @returns a data buffer when streaming mode is disabled and locked, `null`
+     *  when streaming mode is enabled or it hasn't been locked in yet.
+     */
     get body(): Buffer | null;
+    /**
+     * Sets the body of the response. Replaces the current response body. Will
+     * throw an exception if streaming mode is enabled and locked. Will disabled
+     * and lock streaming mode if it isn't already.
+     */
+    set body(content: string | Buffer);
+    get committed(): boolean;
     get headers(): Headers;
     get closed(): boolean;
-    set keepBody(doKeep: boolean);
-    get sendingInChunks(): boolean;
     get statusCode(): number;
     set statusCode(newStatusCode: number);
+    get streaming(): boolean;
+    set streaming(mode: boolean);
     /**
-     * Send the response to the client with previously set status and headers.
-     * If nothing has been sent yet, sends an empty response.
+     * Send the complete response. Stops future transformers from operating. Only
+     * callable after `end()` is called. Idempotent, only the first call has
+     * any effect. Always called after the transformers are complete.
+     */
+    commit(): Promise<void>;
+    /**
+     * Close the response. If in streaming mode, this will also end the
+     * serverResponse.
      * Can be called multiple times safely - subsequent calls are ignored.
      */
     end(): Promise<void>;
@@ -54,6 +106,8 @@ export declare class Response extends EventEmitter<ResponseEvents> {
      * @throws Error if response has already been sent
      */
     json(data: unknown): Promise<void>;
+    private lockStreamingMode;
+    private prepareToSendData;
     /**
      * Send response data to the client.
      * Once called, no more headers can be set or data sent.

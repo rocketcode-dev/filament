@@ -81,7 +81,7 @@ app.use(async (req, res, next) => {
 });
 // Cature body for caching
 app.use(async (req, res, next) => {
-    res.keepBody = true;
+    res.streaming = false;
     await next();
 });
 // Endpoints with different performance characteristics
@@ -144,7 +144,7 @@ app.get('/search', {
     });
 });
 // Cache responses on transform
-app.onFinalize(async (req, res) => {
+app.onTransform(async (req, res) => {
     const { enabled, ttl } = req.endpointMeta.cache;
     if (enabled && res.body) {
         const cacheKey = getCacheKey(req);

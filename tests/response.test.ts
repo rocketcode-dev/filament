@@ -79,7 +79,7 @@ suite('Response', () => {
     testWithOneTimeServer(
       'should throw error if headers already sent',
       async (battery, res) => {
-        res.send('test');
+        await res.send('test');
         battery.test('should throw error when headers sent')
           .value(throws(() => res.headers.set('Content-Type', 'text/plain')))
           .is.true;
@@ -117,7 +117,7 @@ suite('Response', () => {
         battery.test('should data')
           .value(sentResponse).value(JSON.stringify(data)).equal;
         battery.test('should mark headers as sent')
-          .value(res.headers.isFrozen).is.true;
+          .value(res.headers.frozen).is.true;
         battery.test('should call onSend callback')
           .value(sentResponse ? sentResponse.toString() : undefined)
           .value(JSON.stringify(data)).equal;
@@ -183,7 +183,7 @@ suite('Response', () => {
         battery.test('should set body')
           .value(sentResponse).value('Hello World').equal;
         battery.test('should mark headers as sent')
-          .value(res.headers.isFrozen).is.true;
+          .value(res.headers.frozen).is.true;
       }
     );
 
@@ -199,13 +199,13 @@ suite('Response', () => {
         battery.test('should set buffer as body')
           .value(sentResponse).value(buffer).equal;
         battery.test('should mark headers as sent')
-          .value(res.headers.isFrozen).is.true;
+          .value(res.headers.frozen).is.true;
     });
 
     testWithOneTimeServer(
       'should throw error if response already sent',
       async (battery, res) => {
-        res.send('first');
+        await res.send('first');
         battery.test('should throw error on double send')
           .value(throws(() => res.send('second'))).is.true;
     });
@@ -213,9 +213,9 @@ suite('Response', () => {
     testWithOneTimeServer(
       'should not call onSend callback if not provided',
       async (battery, res) => {
-        res.send('test');
+        await res.send('test');
         battery.test('should still mark headers as sent')
-          .value(res.headers.isFrozen).is.true;
+          .value(res.headers.frozen).is.true;
       }
     );
   });
@@ -238,7 +238,7 @@ suite('Response', () => {
         await res.end();
 
         battery.test('should mark headers as sent')
-          .value(res.headers.isFrozen).is.true;
+          .value(res.headers.frozen).is.true;
         battery.test('should not have body')
           .value(sentResponse).is.undefined;
         battery.test('should not call `send` callback')
@@ -271,7 +271,7 @@ suite('Response', () => {
         battery.test('should not throw if called again.')
           .value(duped).value(0).equal;
         battery.test('should still be marked as sent')
-          .value(res.headers.isFrozen).is.true;
+          .value(res.headers.frozen).is.true;
         battery.test('should still be marked as closed')
           .value(res.closed).is.true;
       }
@@ -300,7 +300,7 @@ suite('Response', () => {
         battery.test('should throw if end is called again')
           .value(throws).value(1).equal;
         battery.test('should still be marked as sent')
-          .value(res.headers.isFrozen).is.true;
+          .value(res.headers.frozen).is.true;
         battery.test('should still be marked as closed')
           .value(res.closed).is.true;
         battery.test('data not sent should not fire an event')
@@ -350,7 +350,7 @@ suite('Response', () => {
         battery.test('should have body')
           .value(sentResponse).value('Hello').equal;
         battery.test('should be sent')
-          .value(res.headers.isFrozen).is.true;
+          .value(res.headers.frozen).is.true;
       }
     );
 

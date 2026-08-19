@@ -33,37 +33,37 @@ function toXML(obj: any, root: string = 'root'): string {
   if (Array.isArray(obj)) {
     return `<${root}>${obj.map((item, i) => toXML(item, 'item')).join('')}</${root}>`;
   }
-  
+
   if (typeof obj === 'object' && obj !== null) {
     return `<${root}>${Object.entries(obj)
       .map(([key, value]) => toXML(value, key))
       .join('')}</${root}>`;
   }
-  
+
   return `<${root}>${obj}</${root}>`;
 }
 
 // Helper: Convert to CSV
 function toCSV(data: any[]): string {
   if (!data.length) return '';
-  
+
   const headers = Object.keys(data[0]);
-  const rows = data.map(item => 
+  const rows = data.map(item =>
     headers.map(h => JSON.stringify(item[h] ?? '')).join(',')
   );
-  
+
   return [headers.join(','), ...rows].join('\n');
 }
 
 // Helper: Convert to HTML table
 function toHTML(data: any[], title: string = 'Data'): string {
   if (!data.length) return '<html><body><p>No data</p></body></html>';
-  
+
   const headers = Object.keys(data[0]);
-  const rows = data.map(item => 
+  const rows = data.map(item =>
     `<tr>${headers.map(h => `<td>${item[h]}</td>`).join('')}</tr>`
   ).join('');
-  
+
   return `
 <!DOCTYPE html>
 <html>
@@ -94,13 +94,13 @@ app.use(async (req, res, next) => {
   const acceptHeader = req.headers.get('accept') as string || '';
   const formatParam = req.query.format as string;
   const supportedFormats = req.endpointMeta.formats;
-  
+
   let requestedFormat = req.endpointMeta.defaultFormat;
-  
+
   // Check query parameter first
   if (formatParam && supportedFormats.includes(formatParam as any)) {
     requestedFormat = formatParam as any;
-  } 
+  }
   // Then check Accept header
   else if (acceptHeader.includes('application/xml') && supportedFormats.includes('xml')) {
     requestedFormat = 'xml';
@@ -111,10 +111,10 @@ app.use(async (req, res, next) => {
   } else if (acceptHeader.includes('application/json') && supportedFormats.includes('json')) {
     requestedFormat = 'json';
   }
-  
+
   // Store format in request
   (req as any).responseFormat = requestedFormat;
-  
+
   await next();
 });
 
@@ -145,12 +145,12 @@ app.get('/books/:id',
   },
   async (req, res) => {
     const book = books.find(b => b.id === parseInt(req.params.id));
-    
+
     if (!book) {
       res.status(404).json({ error: 'Book not found' });
       return;
     }
-    
+
     res.json(book);
   }
 );
@@ -173,7 +173,7 @@ app.get('/stats',
         latest: Math.max(...books.map(b => b.year)),
       },
     };
-    
+
     res.json(stats);
   }
 );
@@ -182,16 +182,14 @@ app.get('/stats',
 app.onTransform(async (req, res) => {
   const format = (req as any).responseFormat;
   const { prettyPrint, includeMetadata } = req.endpointMeta;
-  
-  console.log('TRANSFORM')
 
-  if (!res.body) return;
-  
+  const body = res.body?.toString() || ''
+
   try {
-    const data = JSON.parse(res.body.toString());
+    const data = JSON.parse(body);
     let transformed: string;
     let contentType: string;
-    
+
     // Wrap with metadata if needed
     const payload = includeMetadata ? {
       data,
@@ -201,40 +199,40 @@ app.onTransform(async (req, res) => {
         path: req.path,
       },
     } : data;
-    
+
     // Transform based on format
     switch (format) {
       case 'xml':
         transformed = '<?xml version="1.0" encoding="UTF-8"?>\n' + toXML(payload, 'response');
         contentType = 'application/xml';
         break;
-        
+
       case 'csv':
         const csvData = Array.isArray(data) ? data : [data];
         transformed = toCSV(csvData);
         contentType = 'text/csv';
         res.headers.set('Content-Disposition', `attachment; filename="${req.path.replace(/\//g, '_')}.csv"`);
         break;
-        
+
       case 'html':
         const htmlData = Array.isArray(data) ? data : [data];
         const title = req.path.split('/').filter(Boolean).join(' > ');
         transformed = toHTML(htmlData, title || 'Data');
         contentType = 'text/html';
         break;
-        
+
       case 'json':
       default:
-        transformed = prettyPrint 
+        transformed = prettyPrint
           ? JSON.stringify(payload, null, 2)
           : JSON.stringify(payload);
         contentType = 'application/json';
         break;
     }
-    
+
     res.headers.set('Content-Type', contentType);
-    // res.body = transformed;
-    
+    res.body = transformed;
+
   } catch (e) {
     // If transformation fails, leave as-is
     console.error('Transformation error:', e);

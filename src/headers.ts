@@ -67,7 +67,7 @@ const defaultNonRepeatingHeaders: Record<HeaderSetEnum, Set<string>> = {
 
 export class Headers {
 
-  private headersFrozen: boolean = false;
+  private _frozen: boolean = false;
   private _headerPairs:(readonly [string, string])[] = [];
 
   private headerRepeatability: HeaderRepeatability;
@@ -142,13 +142,13 @@ export class Headers {
     return Object.freeze(result);
   }
 
-  get isFrozen(): boolean {
-    return this.headersFrozen;
+  get frozen(): boolean {
+    return this._frozen;
   }
 
-  set isFrozen(freeze: boolean) {
+  set frozen(freeze: boolean) {
     if (freeze === true) {
-      this.headersFrozen = freeze;
+      this._frozen = freeze;
     } else {
       throw 'Cannot unfreeze headers';
     }
@@ -215,7 +215,7 @@ export class Headers {
   }
 
   private checkFrozen() {
-    if (this.isFrozen) {
+    if (this.frozen) {
       throw new Error('Cannot change headers after they are frozen');
     }
   }

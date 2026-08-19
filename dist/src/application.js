@@ -137,6 +137,9 @@ export class Application {
     async executeMiddlewareChain(req, res, middlewares) {
         let currentIndex = 0;
         const next = async () => {
+            if (res.closed) {
+                return;
+            }
             if (currentIndex >= middlewares.length) {
                 return;
             }
@@ -158,8 +161,8 @@ export class Application {
             }
         }
         // If no error handler sent a response, send default error
-        if (!res.headers.isFrozen) {
-            res.status(500).json({ error: 'Internal Server Error' });
+        if (!res.headers.frozen) {
+            await res.status(500).json({ error: 'Internal Server Error' });
         }
     }
     /**
@@ -167,6 +170,9 @@ export class Application {
      */
     async executeTransformers(req, res) {
         for (const transformer of this.transformers) {
+            if (res.committed) {
+                break;
+            }
             try {
                 await transformer(req, res);
             }
@@ -255,7 +261,7 @@ export class Application {
             req.body = Buffer.concat(chunks);
         }
         // Create response object
-        const res = new Response(nodeRes);
+        const res = new Response(nodeRes, { hasTransformers: !!this.transformers.length });
         let hadError = false;
         try {
             // Filter applicable middleware (by path if specified)
@@ -265,14 +271,17 @@ export class Application {
             // Execute middleware chain
             await this.executeMiddlewareChain(req, res, applicableMiddleware);
             // If response already sent by middleware, skip handler
-            if (!res.headers.isFrozen) {
+            if (!res.closed) {
                 // Execute route handler
                 await matchedRoute.handler(req, res, async () => { });
-                // Execute response transformers (only on success)
-                if (!res.headers.isFrozen) {
-                    await this.executeTransformers(req, res);
-                }
             }
+            // Execute response transformers (only with a 2xx status code, with
+            // streaming mode disabled)
+            if (!res.committed && res.statusCode >= 200 && res.statusCode < 300) {
+                await this.executeTransformers(req, res);
+            }
+            // make sure the response is over.
+            await res.commit();
         }
         catch (err) {
             hadError = true;
@@ -282,9 +291,8 @@ export class Application {
             // Always execute finalizers
             await this.executeFinalizers(req, res);
             // Ensure response is sent
-            if (!res.headers.isFrozen) {
-                res.end();
-            }
+            await res.end();
+            res.commit();
         }
     }
     /**
@@ -352,9 +360,9 @@ export class Application {
 /**
  * Factory function to create a new Filament application.
  *
- * Creates an Application instance with the specified metadata type and default metadata values.
- * The metadata type extends {@link FrameworkMeta} and defines the shape of metadata available
- * to all route handlers and middleware.
+ * Creates an Application instance with the specified metadata type and default
+ * metadata values. The metadata type extends {@link FrameworkMeta} and defines
+ * the shape of metadata available to all route handlers and middleware.
  *
  * @template T - The application metadata type that extends FrameworkMeta
  * @param defaultMeta - Default metadata object shared across all routes.

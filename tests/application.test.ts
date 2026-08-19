@@ -32,7 +32,7 @@ suite('Application', () => {
 
       app.get('/test', {}, async (req, res) => {
         called = true;
-        res.json({ success: true });
+        await res.json({ success: true });
       });
 
       battery.test('handler should not be called yet')
