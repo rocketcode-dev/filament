@@ -23,14 +23,26 @@ export function deepMerge<T>(target: T, source: Partial<T>): T {
 }
 
 export function normalizeHeaderName(name: string): string {
+
+    // handle whole-header-name special cases. These are standard headers with
+    // multiple uppercase letters in a row that would not be common in
+    // non-standard headers
+    const fixedHeaders = ['ETag', 'TE']
+    const fixedHeaderFound =
+      fixedHeaders.find(h => h.toLowerCase() === name.toLowerCase());
+    if (fixedHeaderFound) {
+      return fixedHeaderFound;
+    }
+
     // Normalize to kebab case
     name = name
       .replace(/ /g, '-')
-      .replace(/([A-Z])/g, '-$1')
+      // uppercase letters that do not follow other uppercase letters
+      .replace(/(?<!^|[A-Z])([A-Z])/g, '-$1')
       .replace(/\-+/g, '-')
       .replace(/^\-/, '')
       .toLowerCase();
-    // raise the case
+    // raise the case to initial caps
     let raiseNextCase = true;
     let charArray = [];
     for (let idx = 0; idx < name.length; idx++) {
@@ -43,6 +55,29 @@ export function normalizeHeaderName(name: string): string {
       }
       charArray.push(ca);
     }
-    // initialCaps
-    return charArray.join('');
+    let result = charArray.join('');
+
+    // dehyphenate certain fragments
+    const dehyphenate = ['Rate-Limit'];
+    for (const d of dehyphenate) {
+      result = result.replace(d, d.replace(/\-/g, ''));
+    }
+
+    // handle certain fragments that should have a specific casing that is not initial caps.
+    const specialCases = ['API', 'MD5', 'WWW', 'XSS', 'RateLimit'];
+    for (const sc of specialCases) {
+      let lastScIndex = -1;
+      let scIndex!:number
+      while (
+        (scIndex = result.toLowerCase().indexOf(sc.toLowerCase(), lastScIndex))
+        > -1
+      ) {
+        result =
+          result.substring(0, scIndex) + sc +
+          result.substring(scIndex + sc.length);
+        lastScIndex = scIndex + sc.length;
+      }
+    }
+
+    return result;
 }

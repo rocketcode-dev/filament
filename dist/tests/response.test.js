@@ -31,40 +31,38 @@ suite('ResponseImpl', () => {
                 .value(res.statusCode).value(500).equal;
         });
     });
-    suite('setHeader', () => {
+    suite('headers.set', () => {
         testWithOneTimeServer('should set a single header', async (battery, res) => {
-            const result = res.setHeader('Content-Type', 'application/json');
-            battery.test('should return same instance for chaining')
-                .value(result).value(res).equal;
+            const result = res.headers.set('Content-Type', 'application/json');
             battery.test('should set header')
-                .value(res.getHeader('Content-Type')).value('application/json').equal;
+                .value(res.headers.get('Content-Type')).value('application/json').equal;
         });
         testWithOneTimeServer('should set multiple headers', async (battery, res) => {
-            res.setHeader('Content-Type', 'application/json');
-            res.setHeader('X-Custom', 'value');
+            res.headers.set('Content-Type', 'application/json');
+            res.headers.set('X-Custom', 'value');
             battery.test('should have content-type')
-                .value(res.getHeader('Content-Type')).value('application/json').equal;
+                .value(res.headers.get('Content-Type')).value('application/json').equal;
             battery.test('should have custom header')
-                .value(res.getHeader('X-Custom')).value('value').equal;
+                .value(res.headers.get('X-Custom')).value('value').equal;
         });
         testWithOneTimeServer('should set header with array value', async (battery, res) => {
-            res.setHeader('Set-Cookie', ['cookie1=value1', 'cookie2=value2']);
+            res.headers.set('Set-Cookie', ['cookie1=value1', 'cookie2=value2']);
             battery.test('should set array header')
-                .value(res.getHeader('Set-Cookie'))
+                .value(res.headers.get('Set-Cookie'))
                 .value(['cookie1=value1', 'cookie2=value2']).deepEqual;
         });
         testWithOneTimeServer('should throw error if headers already sent', async (battery, res) => {
             res.send('test');
             battery.test('should throw error when headers sent')
-                .value(throws(() => res.setHeader('Content-Type', 'text/plain')))
+                .value(throws(() => res.headers.set('Content-Type', 'text/plain')))
                 .is.true;
         });
-        testWithOneTimeServer('should allow chaining status and setHeader', async (battery, res) => {
-            res.status(201).setHeader('Content-Type', 'application/json');
+        testWithOneTimeServer('should allow chaining status and headers.set', async (battery, res) => {
+            res.status(201).headers.set('Content-Type', 'application/json');
             battery.test('should have status code')
                 .value(res.statusCode).value(201).equal;
             battery.test('should have header')
-                .value(res.getHeader('Content-Type')).value('application/json').equal;
+                .value(res.headers.get('Content-Type')).value('application/json').equal;
         });
     });
     suite('json', () => {
@@ -76,13 +74,13 @@ suite('ResponseImpl', () => {
             const data = { message: 'hello', count: 42 };
             await res.json(data);
             battery.test('should set content-type')
-                .value(res.getHeader('Content-Type')).value('application/json').equal;
+                .value(res.headers.get('Content-Type')).value('application/json').equal;
             battery.test('should fire event when sending data')
                 .value(sentResponse).is.not.nil;
             battery.test('should data')
                 .value(sentResponse).value(JSON.stringify(data)).equal;
             battery.test('should mark headers as sent')
-                .value(res.headersSent).is.true;
+                .value(res.headers.isFrozen).is.true;
             battery.test('should call onSend callback')
                 .value(sentResponse ? sentResponse.toString() : undefined)
                 .value(JSON.stringify(data)).equal;
@@ -128,7 +126,7 @@ suite('ResponseImpl', () => {
             battery.test('should set body')
                 .value(sentResponse).value('Hello World').equal;
             battery.test('should mark headers as sent')
-                .value(res.headersSent).is.true;
+                .value(res.headers.isFrozen).is.true;
         });
         testWithOneTimeServer('should send buffer data', async (battery, res) => {
             let sentResponse;
@@ -140,7 +138,7 @@ suite('ResponseImpl', () => {
             battery.test('should set buffer as body')
                 .value(sentResponse).value(buffer).equal;
             battery.test('should mark headers as sent')
-                .value(res.headersSent).is.true;
+                .value(res.headers.isFrozen).is.true;
         });
         testWithOneTimeServer('should throw error if response already sent', async (battery, res) => {
             res.send('first');
@@ -150,7 +148,7 @@ suite('ResponseImpl', () => {
         testWithOneTimeServer('should not call onSend callback if not provided', async (battery, res) => {
             res.send('test');
             battery.test('should still mark headers as sent')
-                .value(res.headersSent).is.true;
+                .value(res.headers.isFrozen).is.true;
         });
     });
     suite('end', () => {
@@ -167,7 +165,7 @@ suite('ResponseImpl', () => {
             });
             await res.end();
             battery.test('should mark headers as sent')
-                .value(res.headersSent).is.true;
+                .value(res.headers.isFrozen).is.true;
             battery.test('should not have body')
                 .value(sentResponse).is.undefined;
             battery.test('should not call `send` callback')
@@ -195,7 +193,7 @@ suite('ResponseImpl', () => {
             battery.test('should not throw if called again.')
                 .value(duped).value(0).equal;
             battery.test('should still be marked as sent')
-                .value(res.headersSent).is.true;
+                .value(res.headers.isFrozen).is.true;
             battery.test('should still be marked as closed')
                 .value(res.closed).is.true;
         });
@@ -219,7 +217,7 @@ suite('ResponseImpl', () => {
             battery.test('should throw if end is called again')
                 .value(throws).value(1).equal;
             battery.test('should still be marked as sent')
-                .value(res.headersSent).is.true;
+                .value(res.headers.isFrozen).is.true;
             battery.test('should still be marked as closed')
                 .value(res.closed).is.true;
             battery.test('data not sent should not fire an event')
@@ -236,7 +234,7 @@ suite('ResponseImpl', () => {
             battery.test('should have status')
                 .value(res.statusCode).value(201).equal;
             battery.test('should have content-type')
-                .value(res.getHeader('Content-Type')).value('application/json').equal;
+                .value(res.headers.get('Content-Type')).value('application/json').equal;
             battery.test('should have json body')
                 .value(sentResponse?.toString())
                 .value(JSON.stringify({ created: true })).equal;
@@ -248,20 +246,21 @@ suite('ResponseImpl', () => {
             res.on('send', d => {
                 sentResponse = d;
             });
-            await res.status(200).setHeader('X-Custom', 'value').send('Hello');
+            res.status(200).headers.set('X-Custom', 'value');
+            await res.send('Hello');
             battery.test('should have status')
                 .value(res.statusCode).value(200).equal;
             battery.test('should have custom header')
-                .value(res.getHeader('X-Custom')).value('value').equal;
+                .value(res.headers.get('X-Custom')).value('value').equal;
             battery.test('should have body')
                 .value(sentResponse).value('Hello').equal;
             battery.test('should be sent')
-                .value(res.headersSent).is.true;
+                .value(res.headers.isFrozen).is.true;
         });
         testWithOneTimeServer('should prevent modifications after send', async (battery, res) => {
             await res.send('data');
-            battery.test('should throw on setHeader')
-                .value(throws(() => res.setHeader('X-Test', 'value'))).is.true;
+            battery.test('should throw on headers.set')
+                .value(throws(() => res.headers.set('X-Test', 'value'))).is.true;
             battery.test('should throw on second send')
                 .value(throws(() => res.send('more'))).is.true;
             battery.test('status unchanged')

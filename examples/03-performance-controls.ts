@@ -1,4 +1,5 @@
-import { createApp, FrameworkMeta } from '../src/index';
+import { createApp, FrameworkMeta } from '../src/index.js';
+import { Request } from '../src/types.js'
 
 /**
  * Example 3: Advanced Rate Limiting and Caching
@@ -43,7 +44,7 @@ app.use(async (req, res, next) => {
   const { requests, window, strategy } = req.endpointMeta.rateLimit;
   
   // Use IP or a header as identifier (simplified)
-  const identifier = req.headers['x-client-id']?.toString() || 'anonymous';
+  const identifier = req.headers.get('x-client-id') as string || 'anonymous';
   const key = `${identifier}:${req.path}`;
   
   const now = Date.now();
@@ -63,13 +64,13 @@ app.use(async (req, res, next) => {
   bucket.count++;
   
   // Add rate limit headers
-  res.setHeader('X-RateLimit-Limit', requests.toString());
-  res.setHeader('X-RateLimit-Remaining', Math.max(0, requests - bucket.count).toString());
-  res.setHeader('X-RateLimit-Reset', Math.floor(bucket.resetAt / 1000).toString());
+  res.headers.set('X-RateLimit-Limit', requests.toString());
+  res.headers.set('X-RateLimit-Remaining', Math.max(0, requests - bucket.count).toString());
+  res.headers.set('X-RateLimit-Reset', Math.floor(bucket.resetAt / 1000).toString());
   
   if (bucket.count > requests) {
     const retryAfter = Math.ceil((bucket.resetAt - now) / 1000);
-    res.setHeader('Retry-After', retryAfter.toString());
+    res.headers.set('Retry-After', retryAfter.toString());
     res.status(429).json({
       error: 'Rate limit exceeded',
       retryAfter,
@@ -80,6 +81,10 @@ app.use(async (req, res, next) => {
   await next();
 });
 
+function getCacheKey(req:Request<PerformanceMeta>) {
+  return req.endpointMeta.cache.key || `${req.method}:${req.path}`;
+}
+
 // Cache middleware (check before handler)
 app.use(async (req, res, next) => {
   if (!req.endpointMeta.cache.enabled) {
@@ -87,16 +92,17 @@ app.use(async (req, res, next) => {
     return;
   }
   
-  const cacheKey = req.endpointMeta.cache.key || `${req.method}:${req.path}`;
+  const cacheKey = getCacheKey(req);
+
   const cached = cacheStore.get(cacheKey);
-  
+
   if (cached && Date.now() < cached.expiresAt) {
-    res.setHeader('X-Cache', 'HIT');
+    res.headers.set('X-Cache', 'HIT');
     res.json(cached.data);
     return;
   }
   
-  res.setHeader('X-Cache', 'MISS');
+  res.headers.set('X-Cache', 'MISS');
   await next();
 });
 
@@ -105,7 +111,7 @@ app.use(async (req, res, next) => {
   const priority = req.endpointMeta.priority;
   
   // Add priority header
-  res.setHeader('X-Request-Priority', priority);
+  res.headers.set('X-Request-Priority', priority);
   
   // In real implementation, this would queue low-priority requests
   if (priority === 'low') {
@@ -113,6 +119,12 @@ app.use(async (req, res, next) => {
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   
+  await next();
+});
+
+// Cature body for caching
+app.use(async (req, res, next) => {
+  res.keepBody = true;
   await next();
 });
 
@@ -144,10 +156,10 @@ app.post('/orders',
     priority: 'high',
   },
   async (req, res) => {
-    const order = req.body as any;
+    const order = JSON.parse(req.body?.toString() || '');
     
     res.status(201).json({
-      orderId: Math.random().toString(36).substr(2, 9),
+      orderId: Math.random().toString(36).substring(2, 9),
       status: 'processing',
       items: order.items,
     });
@@ -197,14 +209,14 @@ app.get('/search',
 );
 
 // Cache responses on transform
-app.onTransform(async (req, res) => {
-  const { enabled, ttl, key } = req.endpointMeta.cache;
-  
+app.onFinalize(async (req, res) => {
+  const { enabled, ttl } = req.endpointMeta.cache;
+
   if (enabled && res.body) {
-    const cacheKey = key || `${req.method}:${req.path}`;
-    
+    const cacheKey = getCacheKey(req);
+
     try {
-      const data = JSON.parse(res.body as string);
+      const data = JSON.parse(res.body.toString());
       cacheStore.set(cacheKey, {
         data,
         expiresAt: Date.now() + (ttl * 1000),
@@ -216,25 +228,29 @@ app.onTransform(async (req, res) => {
 });
 
 // Performance logging
-app.onFinalize(async (req, res) => {
-  const duration = Date.now() - (req._startTime || Date.now());
-  const priority = req.endpointMeta.priority;
-  const cached = res.headers['X-Cache'] === 'HIT';
-  
-  console.log(
-    `[${priority.toUpperCase()}] ${req.method} ${req.path} - ` +
-    `${res.statusCode} - ${duration}ms ${cached ? '(cached)' : ''}`
-  );
-});
+if (!(process.env.IS_TEST)) {
+  app.onFinalize(async (req, res) => {
+    const duration = Date.now() - (req._startTime || Date.now());
+    const priority = req.endpointMeta.priority;
+    const cached = res.headers.get('X-Cache') === 'HIT';
+    
+    console.log(
+      `[${priority.toUpperCase()}] ${req.method} ${req.path} - ` +
+      `${res.statusCode} - ${duration}ms ${cached ? '(cached)' : ''}`
+    );
+  });
+}
 
 const PORT = 3003;
-app.listen(PORT, () => {
-  console.log(`\n⚡ Performance controls example running on http://localhost:${PORT}`);
-  console.log('\nEndpoints:');
-  console.log('  GET  /products              - High rate limit, cached (5min)');
-  console.log('  POST /orders                - Low rate limit, high priority');
-  console.log('  GET  /analytics/dashboard   - Very low rate limit, cached (1min), low priority');
-  console.log('  GET  /search?q=term         - Medium rate limit, cached (2min)');
-  console.log('\nTry making multiple requests to see rate limiting in action!');
-  console.log('Add header: X-Client-Id: your-id to track limits per client\n');
+app.listen(PORT).then(() => {
+  if (!(process.env.IS_TEST)) {
+    console.log(`\n⚡ Performance controls example running on http://localhost:${PORT}`);
+    console.log('\nEndpoints:');
+    console.log('  GET  /products              - High rate limit, cached (5min)');
+    console.log('  POST /orders                - Low rate limit, high priority');
+    console.log('  GET  /analytics/dashboard   - Very low rate limit, cached (1min), low priority');
+    console.log('  GET  /search?q=term         - Medium rate limit, cached (2min)');
+    console.log('\nTry making multiple requests to see rate limiting in action!');
+    console.log('Add header: X-Client-Id: your-id to track limits per client\n');
+  }
 });

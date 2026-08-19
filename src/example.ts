@@ -26,7 +26,7 @@ const app = createApp<AppMeta>(defaultMeta);
 // Authentication middleware - inspects endpointMeta
 app.use(async (req, res, next) => {
   if (req.endpointMeta.requiresAuth) {
-    const token = req.headers.getHeader('authorization');
+    const token = req.headers.get('authorization');
     
     if (!token) {
       res.status(401).json({ error: 'Unauthorized - No token provided' });
@@ -108,12 +108,12 @@ app.get('/users/:id',
 // Response transformer - adds headers based on tags
 app.onTransform(async (req, res) => {
   if (req.endpointMeta.tags.includes('api')) {
-    res.setHeader('X-API-Version', '1.0');
+    res.headers.set('X-API-Version', '1.0');
   }
   
   if (req.endpointMeta.tags.includes('sensitive')) {
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'DENY');
+    res.headers.set('X-Content-Type-Options', 'nosniff');
+    res.headers.set('X-Frame-Options', 'DENY');
   }
 });
 

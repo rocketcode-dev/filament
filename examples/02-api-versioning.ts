@@ -1,4 +1,4 @@
-import { createApp, FrameworkMeta } from '../src/index';
+import { createApp, FrameworkMeta } from '../src/index.js';
 
 /**
  * Example 2: API Versioning
@@ -19,15 +19,15 @@ const app = createApp<ApiMeta>({
 // Deprecation warning middleware
 app.use(async (req, res, next) => {
   if (req.endpointMeta.deprecated) {
-    res.setHeader('X-API-Deprecated', 'true');
-    res.setHeader('X-API-Sunset', '2026-12-31');
+    res.headers.set('X-API-Deprecated', 'true');
+    res.headers.set('X-API-Sunset', '2026-12-31');
   }
   await next();
 });
 
 // Version header middleware
 app.use(async (req, res, next) => {
-  res.setHeader('X-API-Version', req.endpointMeta.apiVersion);
+  res.headers.set('X-API-Version', req.endpointMeta.apiVersion);
   await next();
 });
 
@@ -131,37 +131,41 @@ app.onTransform(async (req, res) => {
   
   // Add HATEOAS links for detailed format
   if (format === 'detailed') {
-    res.setHeader('Link', '</api/v2/docs>; rel="documentation"');
+    res.headers.set('Link', '</api/v2/docs>; rel="documentation"');
   }
   
   // Add caching headers based on format
   if (format === 'minimal') {
-    res.setHeader('Cache-Control', 'public, max-age=300'); // 5 minutes
+    res.headers.set('Cache-Control', 'public, max-age=300'); // 5 minutes
   } else if (format === 'standard') {
-    res.setHeader('Cache-Control', 'public, max-age=60'); // 1 minute
+    res.headers.set('Cache-Control', 'public, max-age=60'); // 1 minute
   } else {
-    res.setHeader('Cache-Control', 'no-cache'); // No cache for detailed
+    res.headers.set('Cache-Control', 'no-cache'); // No cache for detailed
   }
 });
 
 // Log deprecated endpoint usage
-app.onFinalize(async (req, res) => {
-  if (req.endpointMeta.deprecated) {
-    console.warn(`⚠️  Deprecated endpoint used: ${req.method} ${req.path}`);
-  }
-});
+if (!(process.env.IS_TEST)) {
+  app.onFinalize(async (req, res) => {
+    if (req.endpointMeta.deprecated) {
+      console.warn(`⚠️  Deprecated endpoint used: ${req.method} ${req.path}`);
+    }
+  });
+}
 
 const PORT = 3002;
-app.listen(PORT, () => {
-  console.log(`\n🔄 API Versioning example running on http://localhost:${PORT}`);
-  console.log('\nV1 Endpoints (deprecated):');
-  console.log('  GET /api/v1/user/:id          - Minimal user data');
-  console.log('  GET /api/v1/user/:id/profile  - Standard user profile');
-  console.log('\nV2 Endpoints (current):');
-  console.log('  GET /api/v2/user/:id          - Standard user data');
-  console.log('  GET /api/v2/user/:id/full     - Detailed user data');
-  console.log('\nTry:');
-  console.log('  curl http://localhost:3002/api/v1/user/123');
-  console.log('  curl http://localhost:3002/api/v2/user/123');
-  console.log('  curl http://localhost:3002/api/v2/user/123/full\n');
+app.listen(PORT).then(() => {
+  if (!(process.env.IS_TEST)) {
+    console.log(`\n🔄 API Versioning example running on http://localhost:${PORT}`);
+    console.log('\nV1 Endpoints (deprecated):');
+    console.log('  GET /api/v1/user/:id          - Minimal user data');
+    console.log('  GET /api/v1/user/:id/profile  - Standard user profile');
+    console.log('\nV2 Endpoints (current):');
+    console.log('  GET /api/v2/user/:id          - Standard user data');
+    console.log('  GET /api/v2/user/:id/full     - Detailed user data');
+    console.log('\nTry:');
+    console.log('  curl http://localhost:3002/api/v1/user/123');
+    console.log('  curl http://localhost:3002/api/v2/user/123');
+    console.log('  curl http://localhost:3002/api/v2/user/123/full\n');
+  }
 });

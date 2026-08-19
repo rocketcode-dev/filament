@@ -213,7 +213,7 @@ export class Application<T extends FrameworkMeta> {
     }
 
     // If no error handler sent a response, send default error
-    if (!res.headersSent) {
+    if (!res.headers.isFrozen) {
       res.status(500).json({ error: 'Internal Server Error' });
     }
   }
@@ -308,7 +308,7 @@ export class Application<T extends FrameworkMeta> {
       path,
       params,
       query,
-      headers: new Headers(headers),
+      headers: new Headers('request', headers),
       context: {}, // Initialize empty context
       endpointMeta: matchedRoute.meta,
       _startTime: Date.now(),
@@ -338,12 +338,12 @@ export class Application<T extends FrameworkMeta> {
       await this.executeMiddlewareChain(req, res, applicableMiddleware);
 
       // If response already sent by middleware, skip handler
-      if (!res.headersSent) {
+      if (!res.headers.isFrozen) {
         // Execute route handler
         await matchedRoute.handler(req, res, async () => {});
 
         // Execute response transformers (only on success)
-        if (!res.headersSent) {
+        if (!res.headers.isFrozen) {
           await this.executeTransformers(req, res);
         }
       }
@@ -355,7 +355,7 @@ export class Application<T extends FrameworkMeta> {
       await this.executeFinalizers(req, res);
 
       // Ensure response is sent
-      if (!res.headersSent) {
+      if (!res.headers.isFrozen) {
         res.end();
       }
     }

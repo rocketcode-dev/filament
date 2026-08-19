@@ -1,4 +1,4 @@
-import { createApp, FrameworkMeta } from '../src/index';
+import { createApp, FrameworkMeta } from '../src/index.js';
 
 /**
  * Example 5: Content Negotiation and Response Transformation
@@ -91,7 +91,7 @@ function toHTML(data: any[], title: string = 'Data'): string {
 
 // Content negotiation middleware
 app.use(async (req, res, next) => {
-  const acceptHeader = req.headers.accept?.toString() || '';
+  const acceptHeader = req.headers.get('accept') as string || '';
   const formatParam = req.query.format as string;
   const supportedFormats = req.endpointMeta.formats;
   
@@ -183,10 +183,12 @@ app.onTransform(async (req, res) => {
   const format = (req as any).responseFormat;
   const { prettyPrint, includeMetadata } = req.endpointMeta;
   
+  console.log('TRANSFORM')
+
   if (!res.body) return;
   
   try {
-    const data = JSON.parse(res.body as string);
+    const data = JSON.parse(res.body.toString());
     let transformed: string;
     let contentType: string;
     
@@ -211,7 +213,7 @@ app.onTransform(async (req, res) => {
         const csvData = Array.isArray(data) ? data : [data];
         transformed = toCSV(csvData);
         contentType = 'text/csv';
-        res.setHeader('Content-Disposition', `attachment; filename="${req.path.replace(/\//g, '_')}.csv"`);
+        res.headers.set('Content-Disposition', `attachment; filename="${req.path.replace(/\//g, '_')}.csv"`);
         break;
         
       case 'html':
@@ -230,8 +232,8 @@ app.onTransform(async (req, res) => {
         break;
     }
     
-    res.setHeader('Content-Type', contentType);
-    res.body = transformed;
+    res.headers.set('Content-Type', contentType);
+    // res.body = transformed;
     
   } catch (e) {
     // If transformation fails, leave as-is
@@ -242,27 +244,29 @@ app.onTransform(async (req, res) => {
 // Compression simulation (in real app, use actual compression)
 app.onTransform(async (req, res) => {
   if (req.endpointMeta.compress && res.body) {
-    const originalSize = (res.body as string).length;
+    const originalSize = res.body?.length;
     // In real implementation, use zlib or similar
-    res.setHeader('Content-Encoding', 'gzip');
-    res.setHeader('X-Original-Size', originalSize.toString());
-    res.setHeader('X-Compressed-Size', Math.floor(originalSize * 0.7).toString());
+    res.headers.set('Content-Encoding', 'gzip');
+    res.headers.set('X-Original-Size', originalSize.toString());
+    res.headers.set('X-Compressed-Size', Math.floor(originalSize * 0.7).toString());
   }
 });
 
 const PORT = 3005;
-app.listen(PORT, () => {
-  console.log(`\n🎨 Content negotiation example running on http://localhost:${PORT}`);
-  console.log('\nEndpoints:');
-  console.log('  GET /books           - List books (JSON, XML, CSV, HTML)');
-  console.log('  GET /books/:id       - Single book (JSON, XML)');
-  console.log('  GET /stats           - Statistics (JSON only)');
-  console.log('\nTry different formats:');
-  console.log('  curl http://localhost:3005/books');
-  console.log('  curl http://localhost:3005/books?format=xml');
-  console.log('  curl http://localhost:3005/books?format=csv');
-  console.log('  curl http://localhost:3005/books?format=html');
-  console.log('  curl -H "Accept: application/xml" http://localhost:3005/books');
-  console.log('  curl -H "Accept: text/csv" http://localhost:3005/books');
-  console.log('\nOpen http://localhost:3005/books?format=html in your browser!\n');
+app.listen(PORT).then(() => {
+  if (!(process.env.IS_TEST)) {
+    console.log(`\n🎨 Content negotiation example running on http://localhost:${PORT}`);
+    console.log('\nEndpoints:');
+    console.log('  GET /books           - List books (JSON, XML, CSV, HTML)');
+    console.log('  GET /books/:id       - Single book (JSON, XML)');
+    console.log('  GET /stats           - Statistics (JSON only)');
+    console.log('\nTry different formats:');
+    console.log('  curl http://localhost:3005/books');
+    console.log('  curl http://localhost:3005/books?format=xml');
+    console.log('  curl http://localhost:3005/books?format=csv');
+    console.log('  curl http://localhost:3005/books?format=html');
+    console.log('  curl -H "Accept: application/xml" http://localhost:3005/books');
+    console.log('  curl -H "Accept: text/csv" http://localhost:3005/books');
+    console.log('\nOpen http://localhost:3005/books?format=html in your browser!\n');
+  }
 });

@@ -94,8 +94,8 @@ export interface Request<T extends FrameworkMeta = FrameworkMeta> {
 export interface Response {
   /** HTTP status code */
   statusCode: number;
-  /** Response body content */
-  body?: unknown;
+
+  get body(): Buffer|null;
 
   /**
    * Set to `true` if the response is closed and cannot send any more body data,
@@ -104,16 +104,14 @@ export interface Response {
   get closed(): boolean;
 
   /**
-   * Returns all the headers. This object cannot be changed. Use addHeader and
-   * setHeader to change the response headers.
-   * @returns The headers
+   * Returns the headers object
    */
-  get headerPairs(): readonly (readonly [string, string])[];
+  get headers(): Headers;
 
-  /** 
-   * Returns `true` if the response headers have been sent
+  /**
+   * Set to true to hold the body for post-processing
    */
-  get headersSent(): boolean;
+  set keepBody(doKeep:boolean);
 
   /**
    * Returns `true` if a chunk of the response is sent already
@@ -126,63 +124,7 @@ export interface Response {
    * @returns This response object for chaining
    */
   status(code: number): Response;
-  
-  /**
-   * Add a response header. If a header with the name name already exists,
-   * another header will be added with the same name.
-   * Headers must be set before sending the response.
-   * 
-   * @param name - Header name
-   * @param value - Header value(s), can be a string or array of strings
-   * @returns this object for chaining
-   * @throws Error if headers have already been sent
-   */
-  addHeader(name: string, ...value: (string | string[])[]): Response;
-
-  /**
-   * Add response headers _en masse_. If a header with the same name already
-   * exists, another header will be added with the same name.
-   * Headers must be set before sending the response.
-   * 
-   * @param name - Header name
-   * @param value - Header value(s), can be a string or array of strings
-   * @returns this object for chaining
-   * @throws Error if headers have already been sent
-   */
-  addHeaders(...newHeaders:(InitHeader|InitHeader[])[]): Response;
-
-  /**
-   * Returns the value of a header. If there are multiple headers of the same
-   * name, this will return an array in insertion order.
-   * @param name the name of the header to retrieve.
-   * @returns the header value or values, or `null` if the header does not exist
-   */
-  getHeader(name: string):string|string[]|null;
-  
-  /**
-   * Set a response header. If a header with the same name already exists, the
-   * header will be replaced with this one.
-   * Headers must be set before sending the response.
-   * 
-   * @param name - Header name
-   * @param value - Header value(s), can be a string or array of strings
-   * @returns this object for chaining
-   * @throws Error if headers have already been sent
-   */
-  setHeader(name: string, ...value: (string | string[])[]): Response;
-
-  /**
-   * Set response headers _en masse_. If a header with the same name already
-   * exists, the header will be replaced with this one.
-   * Headers must be set before sending the response.
-   * 
-   * @param name - Header name
-   * @param value - Header value(s), can be a string or array of strings
-   * @returns this object for chaining
-   * @throws Error if headers have already been sent
-   */
-  setHeaders(...newHeaders:(InitHeader|InitHeader[])[]): Response;
-  
+    
   /**
    * Send a JSON response with Content-Type: application/json
    * @param data - Data to serialize as JSON

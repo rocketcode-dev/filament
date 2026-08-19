@@ -1,4 +1,4 @@
-import { createApp, FrameworkMeta } from '../src/index';
+import { createApp, FrameworkMeta } from '../src/index.js';
 
 /**
  * Example 1: Simple Blog API
@@ -32,8 +32,12 @@ const posts = new Map([
 // Authentication middleware
 app.use(async (req, res, next) => {
   if (req.endpointMeta.requiresAuth) {
-    const token = req.headers.authorization?.toString();
-    
+    let token = req.headers.get('authorization');
+
+    if (Array.isArray(token)) {
+      token = token[0];
+    }
+
     if (!token) {
       res.status(401).json({ error: 'Authentication required' });
       return;
@@ -123,17 +127,17 @@ app.patch('/posts/:id',
     }
     
     const user = (req as any).user;
-    
+
     // Editors can only edit their own posts
     if (user.role === 'editor' && post.authorId !== user.id) {
       res.status(403).json({ error: 'Can only edit your own posts' });
       return;
     }
     
-    const { title, content } = req.body as any;
+    const { title, content } = JSON.parse(req.body?.toString() || '{}');
     const updated = { ...post, title, content };
     posts.set(postId, updated);
-    
+
     res.json({ post: updated });
   }
 );
@@ -160,23 +164,27 @@ app.onError(async (err, req, res) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
-// Request logging
-app.onFinalize(async (req, res) => {
-  const user = (req as any).user;
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} - ${res.statusCode} ${user ? `(user: ${user.id})` : '(anonymous)'}`);
-});
+// Request logging (don't do this when running tests)
+if (!(process.env.IS_TEST)) {
+  app.onFinalize(async (req, res) => {
+    const user = (req as any).user;
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} - ${res.statusCode} ${user ? `(user: ${user.id})` : '(anonymous)'}`);
+  });
+}
 
 const PORT = 3001;
-app.listen(PORT, () => {
-  console.log(`\n📝 Blog API running on http://localhost:${PORT}`);
-  console.log('\nEndpoints:');
-  console.log('  GET    /posts          - List all posts (public)');
-  console.log('  GET    /posts/:id      - Get post by ID (public)');
-  console.log('  POST   /posts          - Create post (editor+)');
-  console.log('  PATCH  /posts/:id      - Update post (editor+, own posts only)');
-  console.log('  DELETE /posts/:id      - Delete post (admin only)');
-  console.log('\nAuth tokens:');
-  console.log('  token-admin   - Admin user');
-  console.log('  token-editor  - Editor user');
-  console.log('  token-viewer  - Viewer user\n');
+app.listen(PORT).then(() => {
+  if (!(process.env.IS_TEST)) {
+    console.log(`\n📝 Blog API running on http://localhost:${PORT}`);
+    console.log('\nEndpoints:');
+    console.log('  GET    /posts          - List all posts (public)');
+    console.log('  GET    /posts/:id      - Get post by ID (public)');
+    console.log('  POST   /posts          - Create post (editor+)');
+    console.log('  PATCH  /posts/:id      - Update post (editor+, own posts only)');
+    console.log('  DELETE /posts/:id      - Delete post (admin only)');
+    console.log('\nAuth tokens:');
+    console.log('  token-admin   - Admin user');
+    console.log('  token-editor  - Editor user');
+    console.log('  token-viewer  - Viewer user\n');
+  }
 });

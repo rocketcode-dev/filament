@@ -1,4 +1,4 @@
-import { createApp, FrameworkMeta } from '../src/index';
+import { createApp, FrameworkMeta } from '../src/index.js';
 
 /**
  * Example 4: Distributed Tracing and Observability
@@ -73,8 +73,8 @@ app.use(async (req, res, next) => {
   }
   
   // Extract or create trace ID
-  const traceId = req.headers['x-trace-id']?.toString() || generateId();
-  const parentSpanId = req.headers['x-span-id']?.toString();
+  const traceId = req.headers.get('x-trace-id') as string || generateId();
+  const parentSpanId = req.headers.get('x-span-id') as string;
   const spanId = generateId();
   
   // Attach to request
@@ -82,8 +82,8 @@ app.use(async (req, res, next) => {
   (req as any).spanId = spanId;
   
   // Add trace headers to response
-  res.setHeader('X-Trace-Id', traceId);
-  res.setHeader('X-Span-Id', spanId);
+  res.headers.set('X-Trace-Id', traceId);
+  res.headers.set('X-Span-Id', spanId);
   
   const trace: Trace = {
     traceId,
@@ -153,7 +153,8 @@ app.use(async (req, res, next) => {
         }
       : `[${req.endpointMeta.service}] ${req.method} ${req.path}`;
     
-    console.log(structured ? JSON.stringify(logEntry) : logEntry);
+    process.env.IS_TEST ||
+      console.log(structured ? JSON.stringify(logEntry) : logEntry);
   }
   
   await next();
@@ -192,11 +193,12 @@ app.post('/payments',
   async (req, res) => {
     // Simulate payment processing
     await new Promise(resolve => setTimeout(resolve, 200));
-    
+    const bodyObj = JSON.parse(req.body?.toString() || '');
+
     res.json({
       transactionId: generateId(),
       status: 'success',
-      amount: (req.body as any).amount,
+      amount: bodyObj.amount,
     });
   }
 );
@@ -303,20 +305,23 @@ app.onFinalize(async (req, res) => {
         }
       : `[${req.endpointMeta.service}] ${req.method} ${req.path} - ${res.statusCode} - ${duration}ms`;
     
-    console.log(structured ? JSON.stringify(logEntry) : logEntry);
+    process.env.IS_TEST ||
+      console.log(structured ? JSON.stringify(logEntry) : logEntry);
   }
 });
 
 const PORT = 3004;
-app.listen(PORT, () => {
-  console.log(`\n🔍 Observability example running on http://localhost:${PORT}`);
-  console.log('\nService Endpoints:');
-  console.log('  GET  /users/:id          - User service (full tracing)');
-  console.log('  POST /payments           - Payment service (10% sample rate, sensitive)');
-  console.log('  GET  /analytics/events   - Analytics service (debug logging)');
-  console.log('  GET  /health             - Health check (no tracing)');
-  console.log('\nObservability Endpoints:');
-  console.log('  GET  /metrics            - View collected metrics');
-  console.log('  GET  /traces?limit=10    - View recent traces');
-  console.log('\nMake some requests and then check /metrics and /traces!\n');
+app.listen(PORT).then(() => {
+  if (!(process.env.IS_TEST)) {
+    console.log(`\n🔍 Observability example running on http://localhost:${PORT}`);
+    console.log('\nService Endpoints:');
+    console.log('  GET  /users/:id          - User service (full tracing)');
+    console.log('  POST /payments           - Payment service (10% sample rate, sensitive)');
+    console.log('  GET  /analytics/events   - Analytics service (debug logging)');
+    console.log('  GET  /health             - Health check (no tracing)');
+    console.log('\nObservability Endpoints:');
+    console.log('  GET  /metrics            - View collected metrics');
+    console.log('  GET  /traces?limit=10    - View recent traces');
+    console.log('\nMake some requests and then check /metrics and /traces!\n');
+  }
 });

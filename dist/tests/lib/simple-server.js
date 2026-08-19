@@ -29,8 +29,8 @@ export async function oneTimeServer(method, body, path = '/') {
     app[method](path, async (req, res) => {
         // repeat the data sent in the request to the response
         if (req.method !== 'GET') {
-            const ct = req.headers.getHeader('Content-Type');
-            ct && res.setHeader('Content-Type', ct);
+            const ct = req.headers.get('Content-Type');
+            ct && res.headers.set('Content-Type', ct);
             if (ct === 'application/json') {
                 const o = JSON.parse(req.body?.toString() || '');
                 res.json(o);

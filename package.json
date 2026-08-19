@@ -1,6 +1,6 @@
 {
   "name": "filamentjs",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "A TypeScript API framework with metadata-driven middleware",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
@@ -24,7 +24,7 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "@types/node": "^20.19.41",
+    "@types/node": "^20.19.43",
     "test-battery": "^3.2.2",
     "typescript": "^5.0.0"
   }

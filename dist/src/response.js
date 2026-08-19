@@ -22,28 +22,48 @@ export class ResponseImpl extends EventEmitter {
      */
     constructor(serverResponse) {
         super();
+        this.bodyBuffers = null;
         this._closed = false;
         this._sendingInChunks = false;
         this._statusCode = 200;
-        this.headers = new Headers();
+        this._headers = new Headers('response');
         this.serverResponse = serverResponse;
+    }
+    get body() {
+        if (this.bodyBuffers === null) {
+            return null;
+        }
+        else {
+            let totalLength = 0;
+            this.bodyBuffers = this.bodyBuffers.map(bb => {
+                let result;
+                if (typeof bb === 'string') {
+                    result = Buffer.from(bb);
+                }
+                else {
+                    result = bb;
+                }
+                totalLength += result.length;
+                return result;
+            });
+            const result = Buffer.concat(this.bodyBuffers, totalLength);
+            this.bodyBuffers = [result];
+            return result;
+        }
+    }
+    get headers() {
+        return this._headers;
     }
     get closed() {
         return this._closed;
     }
-    /**
-     * Returns all the headers. This object cannot be changed. Use addHeader and
-     * setHeader to change the response headers.
-     * @returns The headers
-     */
-    get headerPairs() {
-        return this.headers.headerPairs;
-    }
-    /**
-     * Returns `true` if the response headers have been sent
-     */
-    get headersSent() {
-        return this.headers.headersSent || this.serverResponse.headersSent;
+    set keepBody(doKeep) {
+        if (doKeep && this.bodyBuffers === null) {
+            this.bodyBuffers = [];
+        }
+        else if (!doKeep) {
+            this.bodyBuffers = null;
+        }
     }
     get sendingInChunks() {
         return this._sendingInChunks;
@@ -52,46 +72,12 @@ export class ResponseImpl extends EventEmitter {
         return this._statusCode;
     }
     set statusCode(newStatusCode) {
-        if (this.headersSent) {
+        if (this.headers.isFrozen) {
             throw Error('Cannot set the status code after it\'s already been sent');
         }
         else {
             this._statusCode = newStatusCode;
         }
-    }
-    /**
-     * Add a response header. If a header with the name name already exists,
-     * another header will be added with the same name.
-     * Headers must be set before sending the response.
-     *
-     * @param name - Header name
-     * @param value - Header value(s), can be a string or array of strings
-     * @returns this object for chaining
-     * @throws Error if headers have already been sent
-     */
-    addHeader(name, ...value) {
-        if (this.headersSent) {
-            throw Error('Cannot add a header after the headers have been sent');
-        }
-        this.headers.addHeader(name, value.flat());
-        return this;
-    }
-    /**
-     * Add response headers _en masse_. If a header with the same name already
-     * exists, another header will be added with the same name.
-     * Headers must be set before sending the response.
-     *
-     * @param name - Header name
-     * @param value - Header value(s), can be a string or array of strings
-     * @returns this object for chaining
-     * @throws Error if headers have already been sent
-     */
-    addHeaders(...newHeaders) {
-        if (this.headersSent) {
-            throw Error('Cannot add to headers after they have been sent');
-        }
-        this.headers.addHeaders(...newHeaders);
-        return this;
     }
     /**
      * Send the response to the client with previously set status and headers.
@@ -114,15 +100,6 @@ export class ResponseImpl extends EventEmitter {
         });
     }
     /**
-     * Returns the value of a header. If there are multiple headers of the same
-     * name, this will return an array in insertion order.
-     * @param name the name of the header to retrieve.
-     * @returns the header value or values, or null if the header does not exist
-     */
-    getHeader(name) {
-        return this.headers.getHeader(name);
-    }
-    /**
      * Send a JSON response with Content-Type: application/json header.
      * Automatically serializes the data to JSON.
      *
@@ -133,7 +110,7 @@ export class ResponseImpl extends EventEmitter {
         if (this.closed) {
             throw new Error('Cannot send json after the response has been closed');
         }
-        this.headers.setHeader('Content-Type', 'application/json');
+        this.headers.set('Content-Type', 'application/json');
         return this.send(data === undefined ? 'undefined' : JSON.stringify(data));
     }
     /**
@@ -152,11 +129,12 @@ export class ResponseImpl extends EventEmitter {
         }
         const byteLength = data.byteLength;
         if (!this.sendingInChunks) {
-            this.headers.setHeader('Content-Length', byteLength.toString());
+            this.headers.set('Content-Length', byteLength.toString());
         }
         this.sendHeadersIfNotSentAlready();
         this.emit('send', data, byteLength);
         this.serverResponse.write(data);
+        this.bodyBuffers?.push(data);
         return this.end();
     }
     /**
@@ -183,48 +161,15 @@ export class ResponseImpl extends EventEmitter {
                     resolve();
                 }
             });
+            this.bodyBuffers?.push(data);
         });
     }
     sendHeadersIfNotSentAlready() {
-        if (this.headersSent) {
+        if (this.headers.isFrozen) {
             return;
         }
         this.serverResponse.writeHead(this.statusCode, this.headers.headerPairs.flat());
-        this.headers.headersSent = true;
-    }
-    /**
-     * Set a response header. If a header with the same name already exists, the
-     * header will be replaced with this one.
-     * Headers must be set before sending the response.
-     *
-     * @param name - Header name
-     * @param value - Header value(s), can be a string or array of strings
-     * @returns this object for chaining
-     * @throws Error if headers have already been sent
-     */
-    setHeader(name, ...value) {
-        if (this.headersSent) {
-            throw Error('Cannot set a header after the headers have been sent');
-        }
-        this.headers.setHeader(name, value.flat());
-        return this;
-    }
-    /**
-     * Set response headers _en masse_. If a header with the same name already
-     * exists, the header will be replaced with this one.
-     * Headers must be set before sending the response.
-     *
-     * @param name - Header name
-     * @param value - Header value(s), can be a string or array of strings
-     * @returns this object for chaining
-     * @throws Error if headers have already been sent
-     */
-    setHeaders(...newHeaders) {
-        if (this.headersSent) {
-            throw Error('Cannot set headers after the headers have been sent');
-        }
-        this.headers.setHeaders(...newHeaders);
-        return this;
+        this.headers.isFrozen = true;
     }
     /**
      * Set the HTTP response status code.

@@ -21,15 +21,18 @@ node dist/examples/05-content-negotiation.js
 ## Examples Overview
 
 ### 1. Blog API (`01-blog-api.ts`)
+
 **Concepts:** Authentication, Authorization, RBAC
 
 A complete blog API demonstrating:
+
 - User authentication via tokens
 - Role-based access control (admin, editor, viewer)
 - Different endpoints requiring different permission levels
 - Middleware that inspects `requiresAuth` and `role` metadata
 
 **Endpoints:**
+
 - `GET /posts` - List all posts (public)
 - `GET /posts/:id` - Get single post (public)
 - `POST /posts` - Create post (editor+)
@@ -37,6 +40,7 @@ A complete blog API demonstrating:
 - `DELETE /posts/:id` - Delete post (admin only)
 
 **Key Pattern:**
+
 ```typescript
 interface BlogMeta extends FrameworkMeta {
   requiresAuth: boolean;
@@ -54,9 +58,11 @@ app.use(async (req, res, next) => {
 ---
 
 ### 2. API Versioning (`02-api-versioning.ts`)
+
 **Concepts:** Versioning, Deprecation, Response Formats
 
 Demonstrates handling multiple API versions:
+
 - V1 endpoints (deprecated) with sunset headers
 - V2 endpoints (current) with improved structure
 - Different response formats (minimal, standard, detailed)
@@ -64,12 +70,14 @@ Demonstrates handling multiple API versions:
 - Format-based caching strategies
 
 **Endpoints:**
+
 - `GET /api/v1/user/:id` - V1 minimal format (deprecated)
 - `GET /api/v1/user/:id/profile` - V1 profile (deprecated)
 - `GET /api/v2/user/:id` - V2 standard format
 - `GET /api/v2/user/:id/full` - V2 detailed format
 
 **Key Pattern:**
+
 ```typescript
 interface ApiMeta extends FrameworkMeta {
   apiVersion: 'v1' | 'v2';
@@ -88,9 +96,11 @@ app.use(async (req, res, next) => {
 ---
 
 ### 3. Performance Controls (`03-performance-controls.ts`)
+
 **Concepts:** Rate Limiting, Caching, Priority Queues
 
 Advanced performance management:
+
 - Configurable rate limiting per endpoint
 - In-memory caching with TTL
 - Request prioritization (low, normal, high)
@@ -98,12 +108,14 @@ Advanced performance management:
 - Rate limit headers (X-RateLimit-*)
 
 **Endpoints:**
+
 - `GET /products` - High rate limit, cached 5min
 - `POST /orders` - Low rate limit, high priority
 - `GET /analytics/dashboard` - Very low rate limit, low priority
 - `GET /search?q=term` - Medium rate limit, cached 2min
 
 **Key Pattern:**
+
 ```typescript
 interface PerformanceMeta extends FrameworkMeta {
   rateLimit: {
@@ -122,9 +134,11 @@ interface PerformanceMeta extends FrameworkMeta {
 ---
 
 ### 4. Observability (`04-observability.ts`)
+
 **Concepts:** Distributed Tracing, Metrics, Structured Logging
 
 Complete observability stack:
+
 - Distributed tracing with trace/span IDs
 - Configurable sampling rates
 - Metrics collection with custom dimensions
@@ -133,6 +147,7 @@ Complete observability stack:
 - Internal observability endpoints
 
 **Endpoints:**
+
 - `GET /users/:id` - User service (full tracing)
 - `POST /payments` - Payment service (10% sample rate)
 - `GET /analytics/events` - Analytics (debug logging)
@@ -141,6 +156,7 @@ Complete observability stack:
 - `GET /traces?limit=10` - View recent traces
 
 **Key Pattern:**
+
 ```typescript
 interface ObservabilityMeta extends FrameworkMeta {
   trace: {
@@ -164,9 +180,11 @@ interface ObservabilityMeta extends FrameworkMeta {
 ---
 
 ### 5. Content Negotiation (`05-content-negotiation.ts`)
+
 **Concepts:** Content Types, Response Transformation, Format Conversion
 
 Multi-format response support:
+
 - JSON, XML, CSV, and HTML output
 - Content negotiation via Accept header or query param
 - Pretty printing for development
@@ -174,11 +192,13 @@ Multi-format response support:
 - Format-specific headers
 
 **Endpoints:**
+
 - `GET /books` - List books (supports all formats)
 - `GET /books/:id` - Single book (JSON, XML)
 - `GET /stats` - Statistics (JSON only)
 
 **Key Pattern:**
+
 ```typescript
 interface ContentMeta extends FrameworkMeta {
   formats: ('json' | 'xml' | 'csv' | 'html')[];
@@ -195,6 +215,7 @@ app.onTransform(async (req, res) => {
 ```
 
 **Try it:**
+
 ```bash
 # JSON (default)
 curl http://localhost:3005/books
@@ -214,7 +235,9 @@ http://localhost:3005/books?format=html
 ## Common Patterns
 
 ### 1. Conditional Middleware
+
 Middleware inspects `req.endpointMeta` to decide behavior:
+
 ```typescript
 app.use(async (req, res, next) => {
   if (req.endpointMeta.someProperty) {
@@ -225,7 +248,9 @@ app.use(async (req, res, next) => {
 ```
 
 ### 2. Metadata-Driven Headers
+
 Set response headers based on metadata:
+
 ```typescript
 app.onTransform(async (req, res) => {
   if (req.endpointMeta.cors) {
@@ -235,7 +260,9 @@ app.onTransform(async (req, res) => {
 ```
 
 ### 3. Request Context Extension
+
 Attach data to request for downstream use:
+
 ```typescript
 app.use(async (req, res, next) => {
   (req as any).user = authenticateUser(req);
@@ -244,7 +271,9 @@ app.use(async (req, res, next) => {
 ```
 
 ### 4. Post-Processing Chains
+
 Use the three post-request handlers:
+
 ```typescript
 // Transform successful responses
 app.onTransform(async (req, res) => { /* ... */ });
