@@ -1,5 +1,4 @@
 import { suite } from 'node:test';
-import { ResponseImpl } from '../src/response.js';
 import { testWithOneTimeServer } from './lib/simple-server.js';
 
 function throws(fn: () => void) {
@@ -11,7 +10,7 @@ function throws(fn: () => void) {
   }
 }
 
-suite('ResponseImpl', () => {
+suite('Response', () => {
   suite('status', () => {
     testWithOneTimeServer(
       'should set status code and return response for chaining',

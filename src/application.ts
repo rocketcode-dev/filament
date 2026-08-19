@@ -5,7 +5,6 @@ import {
   Headers,
   HttpMethod,
   Request,
-  Response,
   AsyncRequestHandler,
   ErrorHandler,
   Finalizer,
@@ -13,7 +12,7 @@ import {
   Route,
   Middleware,
 } from './types.js';
-import { ResponseImpl } from './response.js';
+import { Response } from './response.js';
 import { pathToRegex, matchPath } from './router.js';
 import { deepMerge } from './tools.js';
 
@@ -324,7 +323,7 @@ export class Application<T extends FrameworkMeta> {
     }
 
     // Create response object
-    const res = new ResponseImpl(nodeRes);
+    const res = new Response(nodeRes);
 
     let hadError = false;
 

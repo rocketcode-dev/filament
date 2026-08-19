@@ -1,6 +1,5 @@
 import { ServerResponse } from 'http';
 import { Headers } from './headers.js';
-import { Response } from './types.js';
 import EventEmitter from 'events';
 interface ResponseEvents {
     send: [data: Buffer, length: number];
@@ -21,7 +20,7 @@ interface ResponseEvents {
  *   .json({ success: true });
  * ```
  */
-export declare class ResponseImpl extends EventEmitter<ResponseEvents> implements Response {
+export declare class Response extends EventEmitter<ResponseEvents> {
     private bodyBuffers;
     private _closed;
     private _sendingInChunks;
@@ -78,5 +77,5 @@ export declare class ResponseImpl extends EventEmitter<ResponseEvents> implement
      */
     status(code: number): Response;
 }
-export {};
+export default Response;
 //# sourceMappingURL=response.d.ts.map

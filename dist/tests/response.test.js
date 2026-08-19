@@ -9,7 +9,7 @@ function throws(fn) {
         return true; // threw an error
     }
 }
-suite('ResponseImpl', () => {
+suite('Response', () => {
     suite('status', () => {
         testWithOneTimeServer('should set status code and return response for chaining', async (battery, res) => {
             const result = res.status(404);

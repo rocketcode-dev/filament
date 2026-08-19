@@ -1,7 +1,7 @@
 import http from 'http';
 import { URL } from 'url';
 import { Headers, } from './types.js';
-import { ResponseImpl } from './response.js';
+import { Response } from './response.js';
 import { pathToRegex, matchPath } from './router.js';
 import { deepMerge } from './tools.js';
 /**
@@ -255,7 +255,7 @@ export class Application {
             req.body = Buffer.concat(chunks);
         }
         // Create response object
-        const res = new ResponseImpl(nodeRes);
+        const res = new Response(nodeRes);
         let hadError = false;
         try {
             // Filter applicable middleware (by path if specified)

@@ -1,6 +1,5 @@
 import { ServerResponse } from 'http';
 import { Headers } from './headers.js';
-import { InitHeader, Response } from './types.js';
 import EventEmitter from 'events';
 
 interface ResponseEvents {
@@ -23,9 +22,8 @@ interface ResponseEvents {
  *   .json({ success: true });
  * ```
  */
-export class ResponseImpl
+export class Response
   extends EventEmitter<ResponseEvents>
-  implements Response
 {
   private bodyBuffers:(string|Buffer)[]|null = null;
   private _closed = false;
@@ -209,3 +207,5 @@ export class ResponseImpl
     return this;
   }
 }
+
+export default Response;

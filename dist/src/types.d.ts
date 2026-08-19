@@ -2,6 +2,7 @@
  * Core type definitions for the Filament framework
  */
 import Headers from "./headers.js";
+import Response from './response.js';
 /**
  * Base interface for application metadata. Extend this interface to add custom
  * metadata that will be available on request handlers.
@@ -72,69 +73,6 @@ export interface Request<T extends FrameworkMeta = FrameworkMeta> {
     context: Record<string, any>;
     /** @internal Request start timestamp in milliseconds */
     _startTime?: number;
-}
-/**
- * HTTP response object for sending data to the client.
- * Supports method chaining for fluent API.
- *
- * @example
- * ```typescript
- * res.status(200).json({ success: true });
- * // or
- * res.setHeader('X-Custom', 'value').send('data');
- * ```
- */
-export interface Response {
-    /** HTTP status code */
-    statusCode: number;
-    get body(): Buffer | null;
-    /**
-     * Set to `true` if the response is closed and cannot send any more body data,
-     * `false` if not.
-     */
-    get closed(): boolean;
-    /**
-     * Returns the headers object
-     */
-    get headers(): Headers;
-    /**
-     * Set to true to hold the body for post-processing
-     */
-    set keepBody(doKeep: boolean);
-    /**
-     * Returns `true` if a chunk of the response is sent already
-     */
-    get sendingInChunks(): boolean;
-    /**
-     * Set the HTTP status code
-     * @param code - The status code to set
-     * @returns This response object for chaining
-     */
-    status(code: number): Response;
-    /**
-     * Send a JSON response with Content-Type: application/json
-     * @param data - Data to serialize as JSON
-     * @throws Error if response has already been sent
-     */
-    json(data: unknown): Promise<void>;
-    /**
-     * Send response data. If the headers are not yet sent, send them. Closes
-     * the response.
-     * @param data - Response body as string or buffer
-     * @throws Error if the response is already closed
-     */
-    send(data: string | Buffer): Promise<void>;
-    /**
-     * Send a chunk of data. If the headers are not yet sent, send them.
-     * @param data - chunk to send as a string or buffer
-     * @throws Error if the response is already closed.
-     */
-    sendChunk(data: string | Buffer): Promise<void>;
-    /**
-     * Close the response. If the headers are not yet sent, send them. Does
-     * nothing if the response is already closed.
-     */
-    end(): Promise<void>;
 }
 /**
  * Request handler function type for routes and middleware.

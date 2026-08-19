@@ -1,9 +1,8 @@
 import { createApp } from '../../src/application.js';
-import { ResponseImpl } from '../../src/response.js';
+import { Response } from '../../src/response.js';
 import {
   FrameworkMeta,
-  Request,
-  Response
+  Request
 } from '../../src/types.js';
 import { Readable } from 'stream';
 import TestBattery from 'test-battery';
@@ -173,7 +172,7 @@ export function testWithOneTimeServer(
   should: string,
   testFn: (
     battery: TestBattery,
-    res: ResponseImpl,
+    res: Response,
     close: () => Promise<void>,
     port: number,
   ) => Promise<void>,
@@ -191,7 +190,7 @@ export function testWithOneTimeServer(
     );
 
     try {
-      const res = await server.response as ResponseImpl;
+      const res = await server.response as Response;
 
       await testFn(
         battery,

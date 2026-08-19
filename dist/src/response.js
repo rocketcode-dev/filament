@@ -14,7 +14,7 @@ import EventEmitter from 'events';
  *   .json({ success: true });
  * ```
  */
-export class ResponseImpl extends EventEmitter {
+export class Response extends EventEmitter {
     /**
      * Creates a new response handler.
      *
@@ -182,4 +182,5 @@ export class ResponseImpl extends EventEmitter {
         return this;
     }
 }
+export default Response;
 //# sourceMappingURL=response.js.map

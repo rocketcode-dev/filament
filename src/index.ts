@@ -13,10 +13,12 @@ export {
   FrameworkMeta,
   HttpMethod,
   Request,
-  Response,
   AsyncRequestHandler,
   ErrorHandler,
   Finalizer,
   ResponseTransformer,
   NextFunction,
 } from './types.js';
+
+export { Response } from './response.js';
+export { Headers } from './headers.js';
