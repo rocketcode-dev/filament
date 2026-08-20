@@ -10,6 +10,7 @@
     "start": "node dist/src/example.js",
     "dev": "tsc && node dist/src/example.js",
     "test": "npm run build && node --test dist/tests/**/*.test.js",
+    "test:coverage": "npm run build && node --experimental-test-coverage --test-coverage-include='dist/src/**/*.js' --test-coverage-lines=90 --test-coverage-branches=85 --test-coverage-functions=95 --test dist/tests/**/*.test.js",
     "prepublishOnly": "npm run build && npm run test",
     "prepare": "git config core.hooksPath .githooks || true"
   },
@@ -26,6 +27,7 @@
   "devDependencies": {
     "@types/node": "^20.19.43",
     "test-battery": "^3.2.2",
+    "tsx": "^4.23.12",
     "typescript": "^5.0.0"
   }
 }

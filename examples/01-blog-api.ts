@@ -106,7 +106,7 @@ app.get('/posts/:id', {}, async (req, res) => {
 app.post('/posts',
   { requiresAuth: true, role: 'editor', rateLimit: 10 },
   async (req, res) => {
-    const { title, content } = req.body as any;
+    const { title, content } = JSON.parse(req.body?.toString() || '{}');
     const user = (req as any).user;
     
     const newPost = {

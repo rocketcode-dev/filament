@@ -72,7 +72,7 @@ app.get('/posts/:id', {}, async (req, res) => {
 });
 // Editor endpoints
 app.post('/posts', { requiresAuth: true, role: 'editor', rateLimit: 10 }, async (req, res) => {
-    const { title, content } = req.body;
+    const { title, content } = JSON.parse(req.body?.toString() || '{}');
     const user = req.user;
     const newPost = {
         id: posts.size + 1,

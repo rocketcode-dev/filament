@@ -9,7 +9,7 @@ export {
   createRouteContext
 } from './application.js';
 
-export {
+export type {
   FrameworkMeta,
   HttpMethod,
   Request,

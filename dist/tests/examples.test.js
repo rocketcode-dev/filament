@@ -1,4 +1,5 @@
 import { execFile, spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import net from 'node:net';
@@ -28,6 +29,42 @@ const examples = {
     performance: { name: 'Performance Controls', source: 'examples/03-performance-controls.ts' },
     observability: { name: 'Observability', source: 'examples/04-observability.ts' },
     content: { name: 'Content Negotiation', source: 'examples/05-content-negotiation.ts' },
+    authorizationCodeServer: {
+        name: 'Authorization Code Server',
+        source: 'examples/06-authorization-code-server.ts',
+    },
+    authorizationCodeClient: {
+        name: 'Authorization Code Client',
+        source: 'examples/06-authorization-code-client.ts',
+    },
+    pkceServer: {
+        name: 'Authorization Code with PKCE Server',
+        source: 'examples/07-authorization-code-pkce-server.ts',
+    },
+    pkceClient: {
+        name: 'Authorization Code with PKCE Client',
+        source: 'examples/07-authorization-code-pkce-client.ts',
+    },
+    deviceServer: {
+        name: 'Device Authorization Server',
+        source: 'examples/08-device-authorization-server.ts',
+    },
+    deviceClient: {
+        name: 'Device Authorization Client',
+        source: 'examples/08-device-authorization-client.ts',
+    },
+    clientCredentialsServer: {
+        name: 'Client Credentials Server',
+        source: 'examples/09-client-credentials-server.ts',
+    },
+    clientCredentialsClient: {
+        name: 'Client Credentials Client',
+        source: 'examples/09-client-credentials-client.ts',
+    },
+    streaming: {
+        name: 'Streaming Ozymandias',
+        source: 'examples/10-streaming-ozymandias.ts',
+    },
 };
 const compilations = new Map();
 function compileExample(example) {
@@ -132,7 +169,7 @@ async function waitForServer(child, port, readOutput) {
     }
     throw new Error(`Example did not listen on port ${port}:\n${readOutput()}`);
 }
-async function withExample(example, run) {
+async function withExample(example, run, serverArgs = []) {
     const compilation = await compileExample(example);
     if (!existsSync(compilation.outputFile)) {
         throw new Error(`TypeScript did not emit ${example.source}:\n${compilation.diagnostics}`);
@@ -143,6 +180,7 @@ async function withExample(example, run) {
         compilation.outputFile,
         '--port', String(port),
         '--silent',
+        ...serverArgs,
     ], {
         cwd: compilation.directory,
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -157,8 +195,9 @@ async function withExample(example, run) {
     });
     try {
         await waitForServer(child, port, () => output);
+        const baseUrl = `http://127.0.0.1:${port}`;
         await run(async (path, init = {}) => {
-            const response = await fetch(`http://127.0.0.1:${port}${path}`, init);
+            const response = await fetch(`${baseUrl}${path}`, init);
             const text = await response.text();
             let json;
             if (text) {
@@ -170,11 +209,22 @@ async function withExample(example, run) {
                 }
             }
             return { status: response.status, headers: response.headers, text, json };
-        });
+        }, baseUrl);
     }
     finally {
         await stopProcess(child);
     }
+}
+async function runExampleClient(client, baseUrl) {
+    const compilation = await compileExample(client);
+    if (!existsSync(compilation.outputFile)) {
+        throw new Error(`TypeScript did not emit ${client.source}:\n${compilation.diagnostics}`);
+    }
+    const result = await execFileAsync(process.execPath, [
+        compilation.outputFile,
+        '--base-url', baseUrl,
+    ], { cwd: compilation.directory });
+    return JSON.parse(result.stdout.trim());
 }
 function jsonRequest(method, body, token) {
     const headers = {};
@@ -430,6 +480,137 @@ suite('Documented examples', () => {
                     .value({ status: missing.status, type: missing.headers.get('content-type') })
                     .value({ status: 404, type: 'application/xml' }).deepEqual;
             });
+        });
+    }));
+    suite('OAuth 2.0 flows', doSuite('oauth', () => {
+        for (const example of [
+            examples.authorizationCodeServer,
+            examples.authorizationCodeClient,
+            examples.pkceServer,
+            examples.pkceClient,
+            examples.deviceServer,
+            examples.deviceClient,
+            examples.clientCredentialsServer,
+            examples.clientCredentialsClient,
+        ])
+            testCompilation(example);
+        TestBattery.test('authorization code client should fetch a protected profile', async (battery) => {
+            await withExample(examples.authorizationCodeServer, async (_request, baseUrl) => {
+                const result = await runExampleClient(examples.authorizationCodeClient, baseUrl);
+                battery.test('client should complete the flow and do useful work')
+                    .value({ flow: result.flow, poem: result.work?.favoritePoem })
+                    .value({ flow: 'authorization_code', poem: 'Ozymandias' }).deepEqual;
+            });
+        });
+        TestBattery.test('PKCE client should prove possession and update a reading list', async (battery) => {
+            await withExample(examples.pkceServer, async (request, baseUrl) => {
+                const unauthorized = await request('/api/reading-list', jsonRequest('POST', {
+                    title: 'untrusted',
+                }));
+                const redirectUri = 'http://127.0.0.1/pkce/callback';
+                const verifier = 'correct-verifier-that-is-long-enough-for-this-test-value';
+                const challenge = createHash('sha256').update(verifier).digest('base64url');
+                const authorization = await request(`/authorize?${new URLSearchParams({
+                    response_type: 'code',
+                    client_id: 'poetry-app',
+                    redirect_uri: redirectUri,
+                    state: 'pkce-test-state',
+                    code_challenge: challenge,
+                    code_challenge_method: 'S256',
+                })}`, { redirect: 'manual' });
+                const code = new URL(authorization.headers.get('location')).searchParams.get('code');
+                const rejectedVerifier = await request('/token', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({
+                        grant_type: 'authorization_code',
+                        code,
+                        client_id: 'poetry-app',
+                        redirect_uri: redirectUri,
+                        code_verifier: 'wrong-verifier',
+                    }),
+                });
+                const result = await runExampleClient(examples.pkceClient, baseUrl);
+                battery.test('protected endpoint should reject a missing bearer token')
+                    .value(unauthorized.status).value(401).equal;
+                battery.test('token endpoint should reject the wrong PKCE verifier')
+                    .value({ status: rejectedVerifier.status, error: rejectedVerifier.json?.error })
+                    .value({ status: 400, error: 'invalid_grant' }).deepEqual;
+                battery.test('public client should complete S256 PKCE and add a title')
+                    .value({ flow: result.flow, title: result.work?.added })
+                    .value({
+                    flow: 'authorization_code_pkce',
+                    title: 'The Complete Poems of Emily Dickinson',
+                }).deepEqual;
+            });
+        });
+        TestBattery.test('device client should obtain approval and save a note', async (battery) => {
+            await withExample(examples.deviceServer, async (request, baseUrl) => {
+                const authorization = await request('/device_authorization', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({ client_id: 'television-poetry-app' }),
+                });
+                const pending = await request('/token', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({
+                        grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+                        device_code: authorization.json?.device_code,
+                        client_id: 'television-poetry-app',
+                    }),
+                });
+                const result = await runExampleClient(examples.deviceClient, baseUrl);
+                battery.test('token polling should remain pending before user approval')
+                    .value({ status: pending.status, error: pending.json?.error })
+                    .value({ status: 400, error: 'authorization_pending' }).deepEqual;
+                battery.test('device flow should save work for the approved user')
+                    .value({ flow: result.flow, saved: result.work?.saved, owner: result.work?.owner })
+                    .value({ flow: 'device_authorization', saved: true, owner: 'device-user' })
+                    .deepEqual;
+            });
+        });
+        TestBattery.test('client credentials client should run machine-to-machine analysis', async (battery) => {
+            await withExample(examples.clientCredentialsServer, async (_request, baseUrl) => {
+                const result = await runExampleClient(examples.clientCredentialsClient, baseUrl);
+                battery.test('service client should analyze text with its scoped token')
+                    .value({ flow: result.flow, words: result.work?.words, by: result.work?.performedBy })
+                    .value({ flow: 'client_credentials', words: 8, by: 'analysis-worker' })
+                    .deepEqual;
+            });
+        });
+    }));
+    suite('Streaming response', doSuite('streaming', () => {
+        testCompilation(examples.streaming);
+        TestBattery.test('should deliver Ozymandias progressively in streaming mode', async (battery) => {
+            await withExample(examples.streaming, async (_request, baseUrl) => {
+                const startedAt = Date.now();
+                const response = await fetch(`${baseUrl}/poem`);
+                const reader = response.body.getReader();
+                const first = await reader.read();
+                const firstChunkAt = Date.now() - startedAt;
+                const chunks = first.value ? [first.value] : [];
+                while (true) {
+                    const chunk = await reader.read();
+                    if (chunk.done)
+                        break;
+                    chunks.push(chunk.value);
+                }
+                const text = Buffer.concat(chunks.map(chunk => Buffer.from(chunk))).toString();
+                battery.test('first line should arrive before the stream finishes')
+                    .value(firstChunkAt < 100).is.true;
+                battery.test('response should use chunked transfer without Content-Length')
+                    .value({
+                    transfer: response.headers.get('transfer-encoding'),
+                    length: response.headers.get('content-length'),
+                }).value({ transfer: 'chunked', length: null }).deepEqual;
+                battery.test('stream should contain the complete fourteen-line sonnet')
+                    .value({
+                    lines: text.trim().split('\n').length,
+                    opening: text.startsWith('I met a traveller from an antique land,'),
+                    ending: text.trim().endsWith('The lone and level sands stretch far away.”'),
+                }).value({ lines: 14, opening: true, ending: true }).deepEqual;
+            }, ['--interval', '10']);
         });
     }));
 });

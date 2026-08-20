@@ -170,11 +170,12 @@ export class Headers {
                 }
                 else {
                     for (const k in nhi) {
-                        this.add(k, ...Array.isArray(nhi[1]) ? nhi[1] : [nhi[k]]);
+                        this.add(k, ...Array.isArray(nhi[k]) ? nhi[k] : [nhi[k]]);
                     }
                 }
             }
         }
+        return this;
     }
     checkFrozen() {
         if (this.frozen) {
@@ -212,11 +213,17 @@ export class Headers {
     isRepeatable(name) {
         const r = this.headerRepeatability;
         const lname = name.toLowerCase();
-        if (r.repeatable?.includes(lname)) {
+        const includes = (headers) => {
+            if (!headers)
+                return false;
+            return (Array.isArray(headers) ? headers : [headers])
+                .some(header => header.toLowerCase() === lname);
+        };
+        if (includes(r.repeatable)) {
             return true;
         }
-        else if (r.nonRepeatable?.includes(lname)) {
-            return true;
+        else if (includes(r.nonRepeatable)) {
+            return false;
         }
         else if (r.defaultNonRepeatableSet &&
             defaultNonRepeatingHeaders[r.defaultNonRepeatableSet].has(lname)) {
@@ -252,7 +259,7 @@ export class Headers {
      */
     removeMany(...name) {
         this.checkFrozen();
-        name.flat().forEach(this.remove);
+        name.flat().forEach(headerName => this.remove(headerName));
         return this;
     }
     /**
@@ -300,7 +307,7 @@ export class Headers {
                 }
                 else {
                     for (const k in nhi) {
-                        this.set(k, ...Array.isArray(nhi[1]) ? nhi[1] : [nhi[k]]);
+                        this.set(k, ...Array.isArray(nhi[k]) ? nhi[k] : [nhi[k]]);
                     }
                 }
             }
@@ -366,12 +373,15 @@ export class Headers {
             case true:
                 addTo('repeatable');
                 removeFrom('nonRepeatable');
+                break;
             case false:
                 addTo('nonRepeatable');
                 removeFrom('repeatable');
+                break;
             case 'default':
                 removeFrom('repeatable');
                 removeFrom('nonRepeatable');
+                break;
         }
     }
     toString() {

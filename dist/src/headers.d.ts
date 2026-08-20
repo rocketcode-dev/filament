@@ -64,7 +64,7 @@ export declare class Headers {
      * @returns this object for chaining
      * @throws Error if headers have already been sent
      */
-    addMany(...newHeaders: (InitHeader | InitHeader[])[]): void;
+    addMany(...newHeaders: (InitHeader | InitHeader[])[]): this;
     private checkFrozen;
     /**
      * Returns the value of a header. If there are multiple headers of the same
