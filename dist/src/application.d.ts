@@ -52,7 +52,7 @@ export declare class Application<T extends FrameworkMeta> {
     /**
      * Register middleware
      */
-    use(pathOrHandler: string | AsyncRequestHandler<T>, handler?: AsyncRequestHandler<T>): void;
+    use(handler: AsyncRequestHandler<T>): void;
     /**
      * Register error handler
      */

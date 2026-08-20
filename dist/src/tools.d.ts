@@ -11,5 +11,10 @@ export declare function deepMerge<T extends object>(defaultMeta: T, ...sourcesAn
  * binary multiples, so `2Mi`, `2MiB`, `2Mb`, and `2 MB` are all 2097152.
  */
 export declare function normalizeByteSize(value: number | string): number;
+/**
+ * Present a header name in conventional upper-kebab form. Camel case, spaces,
+ * and underscores are accepted, with explicit casing for common acronyms and
+ * compound field-name fragments.
+ */
 export declare function normalizeHeaderName(name: string): string;
 //# sourceMappingURL=tools.d.ts.map

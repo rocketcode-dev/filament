@@ -476,8 +476,11 @@ suite('Documented examples', () => {
                 battery.test('single books should fall back from CSV to JSON')
                     .value({ type: book.headers.get('content-type'), id: book.json?.data?.id })
                     .value({ type: 'application/json', id: 1 }).deepEqual;
-                battery.test('missing books should return 404 in a supported format')
-                    .value({ status: missing.status, type: missing.headers.get('content-type') })
+                battery.test('route errors should use supported response formats')
+                    .value({
+                    status: missing.status,
+                    type: missing.headers.get('content-type'),
+                })
                     .value({ status: 404, type: 'application/xml' }).deepEqual;
             });
         });

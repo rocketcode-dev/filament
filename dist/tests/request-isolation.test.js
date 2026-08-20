@@ -18,7 +18,9 @@ suite('Request isolation under high concurrency', () => {
             req.context.requestId = requestId;
             req.context.middleware = `global:${requestId}`;
         });
-        app.use('/alpha', async (req) => {
+        app.use(async (req) => {
+            if (req.endpointMeta.routeName !== 'alpha')
+                return;
             await jitter(req.context.requestId, 2);
             req.context.middleware = `alpha:${req.context.requestId}`;
         });

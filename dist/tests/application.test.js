@@ -1,6 +1,15 @@
 import { suite } from 'node:test';
 import TestBattery from 'test-battery';
 import { createApp, Application, createRouteContext } from '../src/application.js';
+function errorMessage(fn) {
+    try {
+        fn();
+        return undefined;
+    }
+    catch (error) {
+        return error instanceof Error ? error.message : String(error);
+    }
+}
 function createTestApp(meta) {
     return createApp({
         application: { maxRequestSize: '2MiB' },
@@ -78,6 +87,20 @@ suite('Application', () => {
             battery.test('meta not captured until route is called')
                 .value(capturedMeta).value(undefined).equal;
         });
+        TestBattery.test('should require exactly one route handler', battery => {
+            const app = createTestApp({ requiresAuth: false });
+            const handler = async () => { };
+            battery.test('missing and duplicate handlers are rejected')
+                .value([
+                errorMessage(() => app.get('/missing-handler')),
+                errorMessage(() => app.get('/duplicate-handler', handler, handler)),
+            ])
+                .value([
+                'No handler provided for route',
+                'Multiple handlers provided for route',
+            ])
+                .deepEqual;
+        });
     });
     suite('route registration with a route context', () => {
         TestBattery.test('should register GET route', (battery) => {
@@ -138,21 +161,60 @@ suite('Application', () => {
             battery.test('meta not captured until route is called')
                 .value(capturedMeta).value(undefined).equal;
         });
+        TestBattery.test('should expand default and multiple bases across methods', async (battery) => {
+            const app = createTestApp({ requiresAuth: false });
+            const root = createRouteContext(app, { requiresAuth: true });
+            const versions = createRouteContext(app, '/v1', '/v2');
+            const handler = async (req, res) => {
+                await res.send(`${req.method}:${req.path}`);
+            };
+            root.route(['GET', 'POST', 'DELETE'], '/dual', handler);
+            versions.get('/health', handler);
+            const port = await app.listen(0);
+            const results = await Promise.all([
+                fetch(`http://localhost:${port}/dual`).then(response => response.text()),
+                fetch(`http://localhost:${port}/dual`, { method: 'POST' })
+                    .then(response => response.text()),
+                fetch(`http://localhost:${port}/dual`, { method: 'DELETE' })
+                    .then(response => response.text()),
+                fetch(`http://localhost:${port}/v1/health`)
+                    .then(response => response.text()),
+                fetch(`http://localhost:${port}/v2/health`)
+                    .then(response => response.text()),
+            ]);
+            await app.close();
+            battery.test('all expanded routes should resolve')
+                .value(results)
+                .value([
+                'GET:/dual',
+                'POST:/dual',
+                'DELETE:/dual',
+                'GET:/v1/health',
+                'GET:/v2/health',
+            ])
+                .deepEqual;
+        });
+        TestBattery.test('should require exactly one context handler', battery => {
+            const app = createTestApp({ requiresAuth: false });
+            const context = createRouteContext(app, '/v1');
+            const handler = async () => { };
+            battery.test('missing and duplicate handlers are rejected')
+                .value([
+                errorMessage(() => context.get('/missing-handler')),
+                errorMessage(() => context.get('/duplicate-handler', handler, handler)),
+            ])
+                .value([
+                'No handler provided for route',
+                'Multiple handlers provided for route',
+            ])
+                .deepEqual;
+        });
     });
     suite('middleware registration', () => {
         TestBattery.test('should register global middleware', (battery) => {
             const app = createTestApp({ requiresAuth: false });
             let middlewareCalled = false;
             app.use(async () => {
-                middlewareCalled = true;
-            });
-            battery.test('middleware not called until request')
-                .value(middlewareCalled).is.false;
-        });
-        TestBattery.test('should register path-specific middleware', (battery) => {
-            const app = createTestApp({ requiresAuth: false });
-            let middlewareCalled = false;
-            app.use('/api', async () => {
                 middlewareCalled = true;
             });
             battery.test('middleware not called until request')
@@ -255,6 +317,15 @@ suite('Application', () => {
             battery.test('close handled when server not started')
                 .value(closePromise).value(undefined).equal;
         });
+        TestBattery.test('should reject an occupied port', async (battery) => {
+            const owner = createTestApp({ requiresAuth: false });
+            const contender = createTestApp({ requiresAuth: false });
+            const port = await owner.listen(0);
+            const message = await contender.listen(port).then(() => undefined, error => error instanceof Error ? error.message : String(error));
+            await owner.close();
+            battery.test('listen should identify the occupied port')
+                .value(message).value(`Port ${port} is already in use`).equal;
+        });
     });
     suite('request handling', () => {
         TestBattery.test('should handle basic GET request', (battery) => {
@@ -292,6 +363,21 @@ suite('Application', () => {
             });
             battery.test('should return parameter in response')
                 .value(responsePromise).value({ response: { id: '123' }, capturedId: '123' }).deepEqual;
+        });
+        TestBattery.test('should preserve repeated query parameters', battery => {
+            const app = createTestApp({ requiresAuth: false });
+            app.get('/query', async (req, res) => {
+                await res.json(req.query);
+            });
+            const responsePromise = app.listen(0).then(async (port) => {
+                const response = await fetch(`http://localhost:${port}/query?tag=one&single=value&tag=two`);
+                const query = await response.json();
+                await app.close();
+                return query;
+            });
+            battery.test('duplicate keys become arrays and single keys stay strings')
+                .value(responsePromise)
+                .value({ tag: ['one', 'two'], single: 'value' }).deepEqual;
         });
         TestBattery.test('should handle POST request with body', (battery) => {
             const app = createTestApp({ requiresAuth: false });
@@ -508,7 +594,7 @@ suite('Application', () => {
             });
             app.onError(async (err) => {
                 errors.push(err.message);
-                throw new Error('replacement');
+                throw 'replacement';
             });
             app.onError(async (err, _req, res) => {
                 errors.push(err.message);
@@ -528,6 +614,26 @@ suite('Application', () => {
                 errors: ['original', 'replacement'],
             })
                 .deepEqual;
+        });
+        TestBattery.test('should normalize primitive route errors', battery => {
+            const app = createTestApp({ requiresAuth: false });
+            let capturedError;
+            app.get('/primitive-error', async () => {
+                throw 17;
+            });
+            app.onError(async (error, _req, res) => {
+                capturedError = error.message;
+                await res.status(500).json({ error: error.message });
+            });
+            const responsePromise = app.listen(0).then(async (port) => {
+                const response = await fetch(`http://localhost:${port}/primitive-error`);
+                const body = await response.json();
+                await app.close();
+                return { body, capturedError };
+            });
+            battery.test('error handlers receive an Error instance')
+                .value(responsePromise)
+                .value({ body: { error: '17' }, capturedError: '17' }).deepEqual;
         });
         TestBattery.test('should implicitly end a handler response', (battery) => {
             const app = createTestApp({ requiresAuth: false });
@@ -567,7 +673,7 @@ suite('Application', () => {
             app.onTransform(async () => {
                 throw new Error('Transform failed');
             });
-            app.get('/transform-error', {}, async (req, res) => {
+            app.get('/transform-error', {}, async (_req, res) => {
                 await res.json({ unsafe: 'partial response' });
             });
             const responsePromise = app.listen(9892).then(async (port) => {
@@ -583,26 +689,35 @@ suite('Application', () => {
                 body: { error: 'Internal Server Error' },
             }).deepEqual;
         });
-        TestBattery.test('should transform HTTP errors but not exception responses', battery => {
+        TestBattery.test('should transform buffered route responses before commit', battery => {
             const app = createTestApp({ requiresAuth: false });
             let transformations = 0;
             app.onTransform(async (req, res) => {
                 transformations++;
                 res.body = JSON.stringify({ transformed: res.statusCode });
             });
-            app.get('/http-error', {}, async (req, res) => {
+            app.get('/closed-error', {}, async (_req, res) => {
                 await res.status(404).json({ error: 'Not Found' });
+            });
+            app.get('/open-success', {}, async (_req, res) => {
+                res.headers.set('Content-Type', 'application/json');
+                res.body = JSON.stringify({ success: true });
             });
             app.get('/exception', {}, async () => {
                 throw new Error('Unexpected failure');
             });
             const responsePromise = app.listen(9893).then(async (port) => {
-                const httpErrorResponse = await fetch(`http://localhost:${port}/http-error`);
+                const closedErrorResponse = await fetch(`http://localhost:${port}/closed-error`);
+                const openSuccessResponse = await fetch(`http://localhost:${port}/open-success`);
                 const exceptionResponse = await fetch(`http://localhost:${port}/exception`);
                 const result = {
-                    httpError: {
-                        status: httpErrorResponse.status,
-                        body: await httpErrorResponse.json(),
+                    closedError: {
+                        status: closedErrorResponse.status,
+                        body: await closedErrorResponse.json(),
+                    },
+                    openSuccess: {
+                        status: openSuccessResponse.status,
+                        body: await openSuccessResponse.json(),
                     },
                     exception: {
                         status: exceptionResponse.status,
@@ -613,19 +728,132 @@ suite('Application', () => {
                 await app.close();
                 return result;
             });
-            battery.test('only explicit HTTP error should be transformed')
+            battery.test('only exception responses should bypass transforms')
                 .value(responsePromise)
                 .value({
-                httpError: {
+                closedError: {
                     status: 404,
                     body: { transformed: 404 },
+                },
+                openSuccess: {
+                    status: 200,
+                    body: { transformed: 200 },
                 },
                 exception: {
                     status: 500,
                     body: { error: 'Internal Server Error' },
                 },
-                transformations: 1,
+                transformations: 2,
             }).deepEqual;
+        });
+        TestBattery.test('should run all buffered route transformers', battery => {
+            const app = createTestApp({ requiresAuth: false });
+            const order = [];
+            app.onTransform(async (_req, res) => {
+                order.push('first transformer');
+                await res.end();
+            });
+            app.onTransform(async () => {
+                order.push('second transformer');
+            });
+            app.onFinalize(async () => {
+                order.push('finalizer');
+            });
+            app.get('/closing-transformer', async (_req, res) => {
+                res.body = 'complete';
+            });
+            const responsePromise = app.listen(9899).then(async (port) => {
+                const response = await fetch(`http://localhost:${port}/closing-transformer`);
+                const body = await response.text();
+                await app.close();
+                return { body, order };
+            });
+            battery.test('end should not stop route response transformers')
+                .value(responsePromise)
+                .value({
+                body: 'complete',
+                order: ['first transformer', 'second transformer', 'finalizer'],
+            })
+                .deepEqual;
+        });
+        TestBattery.test('should never transform a streaming response', battery => {
+            const app = createTestApp({ requiresAuth: false });
+            let transformations = 0;
+            app.onTransform(async () => {
+                transformations++;
+            });
+            app.get('/stream', async (_req, res) => {
+                res.streaming = true;
+                await res.sendChunk('one');
+                await res.sendChunk('two');
+            });
+            const responsePromise = app.listen(0).then(async (port) => {
+                const response = await fetch(`http://localhost:${port}/stream`);
+                const body = await response.text();
+                await app.close();
+                return { body, transformations };
+            });
+            battery.test('streaming bytes bypass the transformer chain')
+                .value(responsePromise)
+                .value({ body: 'onetwo', transformations: 0 }).deepEqual;
+        });
+        TestBattery.test('should finish a stream when its handler later throws', battery => {
+            const app = createTestApp({ requiresAuth: false });
+            app.get('/partial-stream', async (_req, res) => {
+                res.streaming = true;
+                await res.sendChunk('partial');
+                throw new Error('too late to replace the response');
+            });
+            const responsePromise = app.listen(0).then(async (port) => {
+                const response = await fetch(`http://localhost:${port}/partial-stream`);
+                const result = { status: response.status, body: await response.text() };
+                await app.close();
+                return result;
+            });
+            battery.test('escaped headers and bytes remain intact')
+                .value(responsePromise)
+                .value({ status: 200, body: 'partial' }).deepEqual;
+        });
+        TestBattery.test('should isolate finalizer failures', battery => {
+            const app = createTestApp({ requiresAuth: false });
+            const originalConsoleError = console.error;
+            let logged = '';
+            let resolveFinalized;
+            const finalized = new Promise(resolve => {
+                resolveFinalized = resolve;
+            });
+            app.get('/finalizer-failure', async (_req, res) => {
+                await res.send('complete');
+            });
+            app.onFinalize(async () => {
+                throw new Error('finalizer failed');
+            });
+            app.onFinalize(async () => {
+                resolveFinalized();
+            });
+            const responsePromise = (async () => {
+                console.error = (...values) => {
+                    logged = values.map(String).join(' ');
+                };
+                try {
+                    const port = await app.listen(0);
+                    const response = await fetch(`http://localhost:${port}/finalizer-failure`);
+                    const body = await response.text();
+                    await finalized;
+                    await app.close();
+                    return { body, logged };
+                }
+                finally {
+                    console.error = originalConsoleError;
+                }
+            })();
+            battery.test('later finalizers run and the response remains successful')
+                .value(responsePromise)
+                .value({
+                body: 'complete',
+                logged: 'Error in finalizer: Error: finalizer failed',
+            })
+                .deepEqual;
         });
         TestBattery.test('should call finalizers after response', (battery) => {
             const app = createTestApp({ requiresAuth: false });

@@ -4,6 +4,106 @@
 import Headers from "./headers.js";
 import Response from './response.js';
 
+interface ObservabilityForStatus {
+  // default true for these
+  origin?: boolean,
+  method?: boolean,
+  path?: boolean,
+  search?: boolean,
+  statusCode?: boolean,
+  trace?: boolean,
+  // default false for all of these
+  statusText?: boolean,
+  requestHeaders?: boolean,
+  requestBody?: boolean,
+  responseHeaders?: boolean,
+  responseBody?: boolean
+}
+
+/**
+ * Indicates what type of policy introduced this latency. `system` is the time
+ * between receiving the headers of the request and starting the first
+ * middleware or error policy.
+ */
+type PolicyTypeEnum =
+  'system'|'middleware'|'route'|'transformer'|'error'|'finalizer';
+
+/**
+ * Indicates the status of the transaction at the time the policy ended.
+ * - `new` means the response hasn't be created yet
+ * - `open` means headers and status code can still change
+ * - `headers` means the headers heave been sent and can no longer be changed.
+ *    This is only possible in streaming mode.
+ * - `closed` means the response is closed and middlewares and routes can no
+ *    longer operate. In streaming mode, it is also no longer possible to send
+ *    body data and transformers are also excluded. In buffered mode, the body
+ *    and headers can still be changed by the transformers.
+ * - `committed` means the response is out and nothing can change.
+ */
+type EndStatusEnum = 'new'|'open'|'headers'|'closed'|'committed';
+
+/**
+ * How the response data is handled. In streaming mode, response data chunks go
+ * out as soon as they are sent and they are never stored. In buffered mode,
+ * the data is held until the transforms are complete, then it all goes out as
+ * a unit.
+ */
+type ModeEnum = 'buffered'|'streaming';
+
+interface ObservedInfo {
+  /**
+   * Global transaction ID.
+   */
+  // dateTime to millis (UTC) + sequence number within that millisecond +
+  // random string that was generated at the time of application startup, 
+  // example 20260820-165324123-00-fbst3kd, 20260820-165324123-01-fbst3kd,
+  // 20260820-165324124-00-fbst3kd -- inteded to be sortable with data from
+  // other nodes
+  gitd: string;
+  /**
+   * Time the transaction started, expressed as millis since the epoch
+   */
+  startTime: number; // millis since the epoch
+  responseInfo: {
+    statusCode?: number, statusText?: string, headers?: string, body?: string
+  },
+  requestInfo: {
+    origin?: string, method?: HttpMethod, path?: string, search?: string,
+    headers?: string[], body?: string[]
+  },
+  trace?: {
+    type: PolicyTypeEnum, name?: string, endtime: number,
+    endStatus: EndStatusEnum, mode?: ModeEnum
+  }[]
+}
+
+interface Observability {
+  enabled: boolean; // default false
+  // default is include: { [ all the default values ] }
+  success?: ObservabilityForStatus;
+  // default is same as success
+  failure?: ObservabilityForStatus;
+  [key: number]: ObservabilityForStatus;
+}
+
+/**
+ * Base interface for context metadata. Extend this interface to add custom
+ * metadata that will be available on request handlers.
+ * 
+ * @example
+ * ```typescript
+ * interface MyContext extends ContextMeta {
+ *  includeWidget: true
+ * }
+ * ```
+ */
+export interface ContextMeta {
+  application?: {
+    observability?: Observability,
+    observed?: ObservedInfo
+  }
+}
+
 /**
  * Base interface for application metadata. Extend this interface to add custom
  * metadata that will be available on request handlers.
@@ -23,8 +123,14 @@ export interface FrameworkMeta {
   _internal?: unknown;
   /** Framework-level behavior shared by endpoint metadata. */
   application: {
-    /** Maximum buffered request body size, as bytes or a byte-size string. */
+    /**
+     * Maximum buffered request body size, as bytes or a byte-size string.
+     */
     maxRequestSize: number | string;
+    /**
+     * Information about the observability of an endpoint.
+     */
+    observability?: Observability
   };
 }
 
@@ -78,9 +184,9 @@ export interface Request<T extends FrameworkMeta = FrameworkMeta> {
 }
 
 /**
- * Request handler function type for routes and middleware. Middleware advances
- * automatically when it returns with an open response. Closing the response
- * skips later middleware, the route handler, and response transformers.
+ * Request handler function type for routes and middleware. Global middleware
+ * advances automatically when it returns with an open response. Closing the
+ * response skips the remaining middleware, route handler, and transformers.
  * 
  * @template T - The application metadata type
  * @param req - The incoming request object
@@ -150,8 +256,9 @@ export type Finalizer<T extends FrameworkMeta> = (
 ) => void | Promise<void>;
 
 /**
- * Response transformer function type for modifying responses before sending.
- * Runs after successful handler execution but before finalizers.
+ * Response transformer function type for modifying buffered route responses
+ * after the handler completes and before commit. Middleware-produced,
+ * streaming, and error-flow responses bypass transformers.
  * 
  * @template T - The application metadata type
  * @param req - The request object
@@ -162,7 +269,7 @@ export type Finalizer<T extends FrameworkMeta> = (
  * app.onTransform(async (req, res) => {
  *   // Add timing header
  *   const duration = Date.now() - req._startTime!;
- *   res.setHeader('X-Duration-Ms', duration.toString());
+ *   res.headers.set('X-Duration-Ms', duration.toString());
  * });
  * ```
  */
@@ -187,17 +294,6 @@ export interface Route<T extends FrameworkMeta> {
   /** Merged metadata for this route */
   meta: T;
   /** Route handler function */
-  handler: AsyncRequestHandler<T>;
-}
-
-/**
- * Middleware registration entry.
- * @internal
- */
-export interface Middleware<T extends FrameworkMeta = FrameworkMeta> {
-  /** Optional path prefix for this middleware */
-  path?: string;
-  /** Middleware handler function */
   handler: AsyncRequestHandler<T>;
 }
 

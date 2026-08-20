@@ -23,30 +23,39 @@ export type HeaderRepeatability = {
   repeatable?: string|string[]
 }
 
+// Only singleton fields belong here. List-valued fields are repeatable, and
+// Set-Cookie is the standard response-field exception that must remain as
+// separate lines. Unknown fields default to repeatable and can be overridden.
 const defaultNonRepeatingHeaders: Record<HeaderSetEnum, Set<string>> = {
   request: new Set([
-    'Accept',
-    'Accept-Charset',
-    'Accept-Encoding',
-    'Accept-Language',
+    'Access-Control-Request-Method',
     'Authorization',
-    'Expect',
+    'Content-Length',
+    'Content-Location',
+    'Content-Range',
+    'Content-Type',
+    'Cookie',
+    'Date',
     'From',
     'Host',
-    'Location',
+    'If-Modified-Since',
+    'If-Range',
+    'If-Unmodified-Since',
     'Max-Forwards',
+    'Origin',
+    'Proxy-Authorization',
+    'Range',
     'Referer',
-    'TE',
-    'Trailer',
-    'Transfer-Encoding',
-    'Upgrade',
+    'Sec-WebSocket-Key',
     'User-Agent',
-    'Via',
-    'Warning',
-    'WWW-Authenticate',
+    'X-Content-Type-Options',
   ].map(h => h.toLowerCase())),
   response: new Set([
-    'Allow',
+    'Access-Control-Allow-Credentials',
+    'Access-Control-Allow-Origin',
+    'Access-Control-Max-Age',
+    'Age',
+    'Content-Disposition',
     'Content-Length',
     'Content-Location',
     'Content-MD5',
@@ -57,11 +66,12 @@ const defaultNonRepeatingHeaders: Record<HeaderSetEnum, Set<string>> = {
     'Expires',
     'Last-Modified',
     'Location',
-    'Proxy-Authenticate',
     'Retry-After',
     'Server',
-    'Vary',
-    'WWW-Authenticate',
+    'Strict-Transport-Security',
+    'X-Content-Type-Options',
+    'X-Frame-Options',
+    'X-XSS-Protection',
   ].map(h => h.toLowerCase()))
 };
 
@@ -110,8 +120,8 @@ export class Headers {
   }
 
   /**
-   * Returns all the headers. This object cannot be changed. Use addHeader and
-   * setHeader to change the response headers.
+   * Returns all the headers. This object cannot be changed. Use `add()` and
+   * `set()` to change headers.
    * @returns The headers
    */
   get headerPairs(): readonly (readonly [string, string])[] {
@@ -383,14 +393,16 @@ export class Headers {
       const removeList = r[listname];
       if (removeList) {
         if (Array.isArray(removeList)) {
-          r[listname] = removeList.filter(h => !names.includes(h));
+          r[listname] = removeList.filter(
+            h => !names.includes(h.toLowerCase()),
+          );
           // if there are fewer than two remaining items in the list, the list
           // can be set to `undefined` or a single string.
           switch(r[listname].length) {
           case 0: r[listname] = undefined     ; break;
           case 1: r[listname] = r[listname][0]; break;
           }
-        } else if (names.includes(removeList)) {
+        } else if (names.includes(removeList.toLowerCase())) {
           r[listname] = undefined;
         }
       }
@@ -401,9 +413,13 @@ export class Headers {
       const addList = r[listname];
       if (addList) {
         if (Array.isArray(addList)) {
-          addList.push(...names);
+          const existing = addList.map(item => item.toLowerCase());
+          addList.push(...names.filter(item => !existing.includes(item)));
         } else {
-          r[listname] = [addList, ...names];
+          r[listname] = [
+            addList,
+            ...names.filter(item => item !== addList.toLowerCase()),
+          ];
         }
       } else {
         r[listname] = names;

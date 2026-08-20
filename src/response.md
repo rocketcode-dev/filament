@@ -1,110 +1,69 @@
 # Response lifecycle
 
-The response lifecycle is different when streaming mode is enabled. The
-essential differences are:
+A response has two related boundaries: close and commit. Closing prevents more
+data from being sent by the current stage. Committing performs the native write
+and makes the representation immutable.
 
-| Feature | Streaming enabled | Streaming disabled |
+The stage that closes a response determines what Filament does next:
+
+- If middleware closes it, later middleware, the route handler, and response
+  transformers are skipped.
+- When a route handler completes, Filament closes the response if necessary,
+  runs transformers when it is buffered, and commits it.
+- Error-flow responses bypass transformers.
+- Finalizers always run for observation and cleanup.
+
+## Streaming and buffering
+
+| Feature | Streaming | Buffered |
 | --- | --- | --- |
-| send timing | immediate with each chunk | all chunks stored until transformers complete |
-| transformer middlewares | disabled | enabled |
-| memory usage | chunks are not retained in memory | chunks are retained |
+| Writes | Sent through native I/O | Retained until commit |
+| Transformers | Never | Run after the route handler |
+| Body after close | Unavailable | Mutable until commit |
 
-In the end, streaming mode can provide higher performance and concurrency, but it inhibits the use of transformers. By default, streaming is enabled unless the app has transformers registered.
+Streaming defaults to enabled when the application has no transformers and
+disabled when transformers are registered. Code can set `res.streaming`
+explicitly until the mode is locked.
 
-It's best to **enabled** streaming for:
+The mode is locked by the first of these operations:
 
-- Sending large payloads, and
-- High-concurrency services
+- Assigning `res.body` locks buffered mode.
+- `sendChunk()` locks the current mode but leaves the response open.
+- `send()`, `json()`, and `end()` lock the current mode and close the response.
 
-It's best to **disabled** streaming for:
+## Middleware responses
 
-- postprocessing transforms, e.g. converting between JSON, XML, and YAML
+Returning from middleware with an open response advances automatically. A
+middleware can produce its own final representation with `send()`, `json()`,
+or `end()`. Filament then skips all remaining regular request processing and
+commits that response.
 
-What affects streaming mode, in order of decreasing priority
+## Route responses
 
-- Writing data directly to `res.body = data` will always **disable** streaming mode and lock it in (use `res.send(data)` or `res.sendChunk(data)` to avoid changing streaming mode),
-- Directly set `res.streaming = true|false` to **enable** or **disable** streaming mode,
-- Add a transform to the app to **disable** streaming mode, or
-- Default to streaming mode **enabled**
+A route handler can use the normal response methods:
 
-Streaming mode is changeable until data is sent:
+```typescript
+app.get('/report', async (_req, res) => {
+  await res.json({ ready: true });
+});
+```
 
-- `res.body = data` locks in streaming mode **disabled**,
-- `res.sendChunk(data)` locks in streaming mode to its current state,
-- `res.send(data)` locks in streaming mode to its current state, and
-- `res.end() also locks in streaming mode to its current state.
+After the handler returns, Filament supplies an implicit `end()` if necessary.
+Buffered responses then pass through every registered transformer before
+commit. A transformer can replace the body, status, or headers. Streaming
+responses commit without entering the transformer chain.
 
-## Initial state
+## Commit
 
-The initial state of a newly-created Response is as follows:
+For streaming responses, native output occurs as data is sent and `end()`
+completes it. For buffered responses, `commit()` writes the final transformed
+representation. Filament owns `commit()` during normal application processing.
 
-| streaming | headers | closed | committed | body |
-| --- | --- | --- | --- | --- |
-| 🟢 unlocked | 🟢 fluid | 🟢 false | 🟢 false | 🟢 empty |
+After commit, the body, status, and headers can no longer be changed. Repeated
+`end()` and `commit()` calls share their existing completion operations.
 
-At this point, streaming mode can be set, headers can be adjusted, and status
-code can be changed.
+## Finalizers
 
-When the first write occurs, the streaming mode is locked in.
-
-## With streaming mode enabled
-
-### `sendChunk`
-
-Data chunk is sent to the end point without storing it. If the headers haven't been sent already, they will be sent first, and then frozen. Streaming mode is locked in.
-
-| streaming | headers | closed | committed | body |
-| --- | --- | --- | --- | --- |
-| 🔴 locked | 🔴 frozen | 🟢 false | 🟢 false | 🔴 unused |
-
-### `send` or `json`
-
-Final data chunk is sent to the end point and `end` is called. Note that `json` cannot be called after `sendChunk`.
-
-| streaming | headers | closed | committed | body |
-| --- | --- | --- | --- | --- |
-| 🔴 locked | 🔴 frozen | 🔴 'pending' | 🟢 false | 🔴 unused |
-
-### `end`
-
-Write stream is closed. The transaction is complete.
-
-| streaming | headers | closed | committed | body |
-| --- | --- | --- | --- | --- |
-| 🔴 locked | 🔴 frozen | 🔴 true | 🔴 true | 🔴 unused |
-
-### `commit` is a no-op
-
-This is essentially a no-op in streaming mode as the response is already out.
-
-| streaming | headers | closed | committed | body |
-| --- | --- | --- | --- | --- |
-| 🔴 locked | 🔴 frozen | 🔴 true | 🔴 true | 🔴 unused |
-
-## With streaming mode disabled
-
-### `sendChunk` without streaming
-
-Data chunk is stored in memory for sending later. Chunks here are meaningless; they are combined long before the data goes out. Because data hasn't actually been sent, the headers are still malleable.
-
-| streaming | headers | closed | committed | body |
-| --- | --- | --- | --- | --- |
-| 🔴 locked | 🟢 fluid | 🟢 false | 🟢 false | 🟢 writable |
-
-### `send`, `end`
-
-Final data chunk is stored in memory and the body is marked as closed. The body
-remains writable because this is still useful for transforms.
-
-| streaming | headers | closed | committed | body |
-| --- | --- | --- | --- | --- |
-| 🔴 locked | 🟢 fluid | 🔴 true | 🟢 false | 🟢 still writable |
-
-### `commit`
-
-This is when the headers and all body data is send out. At this point, everything is closed and no changes to body can be made.
-
-| streaming | headers | closed | committed | body |
-| --- | --- | --- | --- | --- |
-| 🔴 locked | 🔴 locked | 🔴 true | 🔴 true | 🔴 unused |
-
+Finalizers run for successful, middleware-terminal, and error responses. They
+are intended for observation and cleanup, not response mutation. A finalizer
+failure is logged and does not replace the response.

@@ -108,13 +108,8 @@ export class Application {
     /**
      * Register middleware
      */
-    use(pathOrHandler, handler) {
-        if (typeof pathOrHandler === 'string' && handler) {
-            this.middlewares.push({ path: pathOrHandler, handler });
-        }
-        else if (typeof pathOrHandler === 'function') {
-            this.middlewares.push({ handler: pathOrHandler });
-        }
+    use(handler) {
+        this.middlewares.push(handler);
     }
     /**
      * Register error handler
@@ -308,20 +303,14 @@ export class Application {
             if (['POST', 'PUT', 'PATCH'].includes(method)) {
                 req.body = await this.readRequestBody(nodeReq, matchedRoute.meta.application.maxRequestSize);
             }
-            // Filter applicable middleware (by path if specified)
-            const applicableMiddleware = this.middlewares
-                .filter((mw) => !mw.path || path.startsWith(mw.path))
-                .map((mw) => mw.handler);
             // Execute middleware chain
-            const shouldContinue = await this.executeMiddlewareChain(req, res, applicableMiddleware);
+            const shouldContinue = await this.executeMiddlewareChain(req, res, this.middlewares);
             if (shouldContinue) {
                 await matchedRoute.handler(req, res);
-                // The application owns the route boundary: handlers may end
-                // explicitly, but an implicit end is supplied when they return without
-                // doing so.
+                // The application owns the route boundary: it supplies an implicit end
+                // when needed, transforms buffered route responses, and commits them.
+                // Responses closed by middleware never reach this block.
                 await res.end();
-                // Middleware-produced responses are already final. Only route-handler
-                // responses proceed through the transformer chain.
                 if (!res.streaming && !res.committed) {
                     await this.executeTransformers(req, res);
                 }

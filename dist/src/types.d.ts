@@ -72,9 +72,9 @@ export interface Request<T extends FrameworkMeta = FrameworkMeta> {
     _startTime?: number;
 }
 /**
- * Request handler function type for routes and middleware. Middleware advances
- * automatically when it returns with an open response. Closing the response
- * skips later middleware, the route handler, and response transformers.
+ * Request handler function type for routes and middleware. Global middleware
+ * advances automatically when it returns with an open response. Closing the
+ * response skips the remaining middleware, route handler, and transformers.
  *
  * @template T - The application metadata type
  * @param req - The incoming request object
@@ -129,8 +129,9 @@ export type ErrorHandler<T extends FrameworkMeta> = (err: Error, req: Request<T>
  */
 export type Finalizer<T extends FrameworkMeta> = (req: Request<T>, res: Response) => void | Promise<void>;
 /**
- * Response transformer function type for modifying responses before sending.
- * Runs after successful handler execution but before finalizers.
+ * Response transformer function type for modifying buffered route responses
+ * after the handler completes and before commit. Middleware-produced,
+ * streaming, and error-flow responses bypass transformers.
  *
  * @template T - The application metadata type
  * @param req - The request object
@@ -141,7 +142,7 @@ export type Finalizer<T extends FrameworkMeta> = (req: Request<T>, res: Response
  * app.onTransform(async (req, res) => {
  *   // Add timing header
  *   const duration = Date.now() - req._startTime!;
- *   res.setHeader('X-Duration-Ms', duration.toString());
+ *   res.headers.set('X-Duration-Ms', duration.toString());
  * });
  * ```
  */
@@ -162,16 +163,6 @@ export interface Route<T extends FrameworkMeta> {
     /** Merged metadata for this route */
     meta: T;
     /** Route handler function */
-    handler: AsyncRequestHandler<T>;
-}
-/**
- * Middleware registration entry.
- * @internal
- */
-export interface Middleware<T extends FrameworkMeta = FrameworkMeta> {
-    /** Optional path prefix for this middleware */
-    path?: string;
-    /** Middleware handler function */
     handler: AsyncRequestHandler<T>;
 }
 export declare const __type_module__ = true;

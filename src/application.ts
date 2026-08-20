@@ -10,7 +10,6 @@ import {
   Finalizer,
   ResponseTransformer,
   Route,
-  Middleware,
 } from './types.js';
 import { Response } from './response.js';
 import { pathToRegex, matchPath } from './router.js';
@@ -47,7 +46,7 @@ import { deepMerge, normalizeByteSize } from './tools.js';
  */
 export class Application<T extends FrameworkMeta> {
   private routes: Route<T>[] = [];
-  private middlewares: Middleware<T>[] = [];
+  private middlewares: AsyncRequestHandler<T>[] = [];
   private errorHandlers: ErrorHandler<T>[] = [];
   private finalizers: Finalizer<T>[] = [];
   private transformers: ResponseTransformer<T>[] = [];
@@ -145,15 +144,8 @@ export class Application<T extends FrameworkMeta> {
   /**
    * Register middleware
    */
-  use(
-    pathOrHandler: string | AsyncRequestHandler<T>,
-    handler?: AsyncRequestHandler<T>
-  ): void {
-    if (typeof pathOrHandler === 'string' && handler) {
-      this.middlewares.push({ path: pathOrHandler, handler });
-    } else if (typeof pathOrHandler === 'function') {
-      this.middlewares.push({ handler: pathOrHandler });
-    }
+  use(handler: AsyncRequestHandler<T>): void {
+    this.middlewares.push(handler);
   }
 
   /**
@@ -387,28 +379,20 @@ export class Application<T extends FrameworkMeta> {
         );
       }
 
-      // Filter applicable middleware (by path if specified)
-      const applicableMiddleware = this.middlewares
-        .filter((mw) => !mw.path || path.startsWith(mw.path))
-        .map((mw) => mw.handler);
-
       // Execute middleware chain
       const shouldContinue = await this.executeMiddlewareChain(
         req,
         res,
-        applicableMiddleware,
+        this.middlewares,
       );
 
       if (shouldContinue) {
         await matchedRoute.handler(req, res);
 
-        // The application owns the route boundary: handlers may end
-        // explicitly, but an implicit end is supplied when they return without
-        // doing so.
+        // The application owns the route boundary: it supplies an implicit end
+        // when needed, transforms buffered route responses, and commits them.
+        // Responses closed by middleware never reach this block.
         await res.end();
-
-        // Middleware-produced responses are already final. Only route-handler
-        // responses proceed through the transformer chain.
         if (!res.streaming && !res.committed) {
           await this.executeTransformers(req, res);
         }

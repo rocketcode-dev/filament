@@ -107,56 +107,62 @@ export function normalizeByteSize(value) {
     }
     return result;
 }
+/**
+ * Present a header name in conventional upper-kebab form. Camel case, spaces,
+ * and underscores are accepted, with explicit casing for common acronyms and
+ * compound field-name fragments.
+ */
 export function normalizeHeaderName(name) {
-    // handle whole-header-name special cases. These are standard headers with
-    // multiple uppercase letters in a row that would not be common in
-    // non-standard headers
-    const fixedHeaders = ['ETag', 'TE'];
-    const fixedHeaderFound = fixedHeaders.find(h => h.toLowerCase() === name.toLowerCase());
-    if (fixedHeaderFound) {
-        return fixedHeaderFound;
-    }
-    // Normalize to kebab case
-    name = name
-        .replace(/ /g, '-')
-        // uppercase letters that do not follow other uppercase letters
-        .replace(/(?<!^|[A-Z])([A-Z])/g, '-$1')
-        .replace(/\-+/g, '-')
-        .replace(/^\-/, '')
+    const normalized = name
+        .trim()
+        .replace(/[\s_]+/g, '-')
+        .replace(/([a-z\d])([A-Z])/g, '$1-$2')
+        .replace(/([A-Z]+)([A-Z][a-z])/g, '$1-$2')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '')
         .toLowerCase();
-    // raise the case to initial caps
-    let raiseNextCase = true;
-    let charArray = [];
-    for (let idx = 0; idx < name.length; idx++) {
-        let ca = name.charAt(idx);
-        if (raiseNextCase) {
-            ca = ca.toUpperCase();
-            raiseNextCase = false;
+    const fixedHeaders = {
+        'contentmd5': 'Content-MD5',
+        'e-tag': 'ETag',
+        'etag': 'ETag',
+        'te': 'TE',
+    };
+    if (fixedHeaders[normalized])
+        return fixedHeaders[normalized];
+    const specialTokens = {
+        api: 'API',
+        cdn: 'CDN',
+        ch: 'CH',
+        dnt: 'DNT',
+        dns: 'DNS',
+        md5: 'MD5',
+        mime: 'MIME',
+        nel: 'NEL',
+        te: 'TE',
+        ua: 'UA',
+        www: 'WWW',
+        xss: 'XSS',
+    };
+    const tokens = normalized ? normalized.split('-') : [];
+    const result = [];
+    for (let index = 0; index < tokens.length; index++) {
+        const token = tokens[index];
+        const nextToken = tokens[index + 1];
+        if (token === 'rate' && nextToken === 'limit') {
+            result.push('RateLimit');
+            index++;
         }
-        else if (ca === '-') {
-            raiseNextCase = true;
+        else if (token === 'web' && nextToken === 'socket') {
+            result.push('WebSocket');
+            index++;
         }
-        charArray.push(ca);
-    }
-    let result = charArray.join('');
-    // dehyphenate certain fragments
-    const dehyphenate = ['Rate-Limit'];
-    for (const d of dehyphenate) {
-        result = result.replace(d, d.replace(/\-/g, ''));
-    }
-    // handle certain fragments that should have a specific casing that is not initial caps.
-    const specialCases = ['API', 'MD5', 'WWW', 'XSS', 'RateLimit'];
-    for (const sc of specialCases) {
-        let lastScIndex = -1;
-        let scIndex;
-        while ((scIndex = result.toLowerCase().indexOf(sc.toLowerCase(), lastScIndex))
-            > -1) {
-            result =
-                result.substring(0, scIndex) + sc +
-                    result.substring(scIndex + sc.length);
-            lastScIndex = scIndex + sc.length;
+        else if (token === 'websocket') {
+            result.push('WebSocket');
+        }
+        else {
+            result.push(specialTokens[token] ?? token.charAt(0).toUpperCase() + token.slice(1));
         }
     }
-    return result;
+    return result.join('-');
 }
 //# sourceMappingURL=tools.js.map

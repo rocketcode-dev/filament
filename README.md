@@ -7,9 +7,9 @@ A TypeScript API framework with metadata-driven middleware. Similar in purpose t
 ### Best Features
 
 - **Type-Safe Metadata**: Full TypeScript support means your middleware logic is validated at compile time
-- **Zero Runtime Overhead**: Metadata inspection is fast—no reflection or complex routing logic
+- **Low Runtime Overhead**: Metadata inspection is fast—no reflection or complex routing logic
 - **Predictable Execution**: Registration order is everything—no magic, no surprises
-- **Immutable Request Context**: Middleware can't accidentally corrupt endpoint metadata
+- **Immutable Endpoint Metadata**: Middleware can't accidentally change route policy
 - **Flexible Post-Processing**: Handle errors, transform responses, and finalize requests with dedicated hooks
 - **Express-Familiar API**: If you know Express, you know Filament—intuitive and approachable
 - **Minimal Dependencies**: Lightweight framework perfect for microservices and APIs
@@ -36,16 +36,17 @@ You define a complete default metadata object when creating your app. Individual
 
 ### 3. Single Middleware Chain
 
-Middleware runs in registration order. Each middleware inspects
-`req.endpointMeta` to decide what to do. Returning advances automatically;
-sending or ending a response makes that middleware terminal.
+All middleware runs in registration order. Each middleware inspects
+`req.endpointMeta` and bows out when its policy does not apply. Returning with
+an open response advances automatically; `send()`, `json()`, or `end()` makes
+that middleware terminal.
 
 ### 4. Post-Request Processing
 
 Three types of post-request handlers:
 
 - **Error Handlers**: Run when errors occur
-- **Response Transformers**: Modify successful responses
+- **Response Transformers**: Modify buffered route responses before commit
 - **Finalizers**: Always run, regardless of success/failure
 
 ## Quick Start
@@ -76,9 +77,9 @@ const app = createApp<AppMeta>(defaultMeta);
 // Add middleware that inspects metadata
 app.use(async (req, res) => {
   if (req.endpointMeta.requiresAuth) {
-    const token = req.headers.authorization;
+    const token = req.headers.get('Authorization');
     if (!token) {
-      res.status(401).json({ error: 'Unauthorized' });
+      await res.status(401).json({ error: 'Unauthorized' });
       return;
     }
     // validate token...
@@ -87,18 +88,18 @@ app.use(async (req, res) => {
 
 // Define endpoints with custom metadata
 app.get('/public', {}, async (req, res) => {
-  res.json({ message: 'Public endpoint' });
+  await res.json({ message: 'Public endpoint' });
 });
 
 app.get('/admin', 
   { requiresAuth: true, logLevel: 'debug' },
   async (req, res) => {
-    res.json({ message: 'Admin panel' });
+    await res.json({ message: 'Admin panel' });
   }
 );
 
 // Start server
-app.listen(3000);
+const port = await app.listen(3000);
 ```
 
 ## API Reference
@@ -118,19 +119,26 @@ Creates a new application instance with typed metadata.
 #### HTTP Methods
 
 ```typescript
-app.get(path: string, meta: Partial<T>, handler: AsyncRequestHandler): void
-app.post(path: string, meta: Partial<T>, handler: AsyncRequestHandler): void
-app.put(path: string, meta: Partial<T>, handler: AsyncRequestHandler): void
-app.patch(path: string, meta: Partial<T>, handler: AsyncRequestHandler): void
-app.delete(path: string, meta: Partial<T>, handler: AsyncRequestHandler): void
+type RoutePart<T> = string | Partial<T> | AsyncRequestHandler<T>;
+
+app.get(...parts: RoutePart<T>[]): void
+app.post(...parts: RoutePart<T>[]): void
+app.put(...parts: RoutePart<T>[]): void
+app.patch(...parts: RoutePart<T>[]): void
+app.delete(...parts: RoutePart<T>[]): void
 ```
+
+A registration accepts one handler, one or more paths, and zero or more
+metadata overrides. Metadata sources merge in argument order.
 
 #### Middleware Registration
 
 ```typescript
-app.use(middleware: AsyncRequestHandler): void
-app.use(path: string, middleware: AsyncRequestHandler): void
+app.use(middleware: AsyncRequestHandler<T>): void
 ```
+
+Middleware is application-wide by design. Use `req.endpointMeta` inside the
+middleware to decide whether its behavior applies to the matched endpoint.
 
 #### Post-Request Handlers
 
@@ -143,7 +151,7 @@ app.onFinalize(handler: Finalizer<T>): void
 #### Server Control
 
 ```typescript
-app.listen(port: number, callback?: () => void): void
+app.listen(port: number): Promise<number>
 app.close(): Promise<void>
 ```
 
@@ -153,11 +161,12 @@ app.close(): Promise<void>
 interface Request<T extends FrameworkMeta> {
   method: HttpMethod;
   path: string;
-  params: Record<string, string>;        // Path parameters
-  query: Record<string, string | string[]>;  // Query parameters
-  headers: Record<string, string | string[] | undefined>;
-  body?: Buffer;                         // Buffered request body
-  endpointMeta: Readonly<T>;            // Endpoint metadata (read-only)
+  params: Record<string, string>;
+  query: Record<string, string | string[]>;
+  headers: Headers;
+  body?: Buffer;
+  endpointMeta: Readonly<T>;
+  context: Record<string, any>;
 }
 ```
 
@@ -165,15 +174,26 @@ interface Request<T extends FrameworkMeta> {
 
 ```typescript
 interface Response {
+  readonly statusCode: number;
+  readonly headers: Headers;
+  readonly closed: boolean;
+  readonly committed: boolean;
+  streaming: boolean;
+  body: Buffer | string | null;
   status(code: number): Response;
-  setHeader(name: string, value: string | string[]): Response;
-  json(data: unknown): void;
-  send(data: string | Buffer): void;
-  end(): void;
+  json(data: unknown): Promise<void>;
+  send(data: string | Buffer): Promise<void>;
+  sendChunk(data: string | Buffer): Promise<void>;
+  end(): Promise<void>;
 }
 ```
 
+Read and mutate headers through `res.headers`, for example
+`res.headers.set('Content-Type', 'text/plain')`.
+
 ## Request Lifecycle
+
+![Filament request lifecycle, including terminal responses and exception flows](assets/request-lifecycle.svg)
 
 ```text
 1. Incoming Request
@@ -183,18 +203,57 @@ interface Response {
 3. Middleware Chain (in registration order)
    - Each middleware inspects req.endpointMeta
    - Returning with an open response continues automatically
-   - Closing the response stops later middleware, the route handler, and transforms
+   - Closing stops later middleware, the route handler, and transformers
    ↓
 4. Route Handler executes
+   - Filament supplies an implicit end if the handler leaves it open
    ↓
-5. [If Success] Response Transformers (sequential, awaited)
+5. [If Buffered] Response Transformers (sequential, awaited)
+   - Streaming responses always skip transformers
    ↓
-6. [If Error anywhere] Error Handlers (sequential, awaited)
-   ↓
-7. Finalizers (always run, sequential, awaited)
-   ↓
-8. Response sent
+6. Filament commits the route response
+
+If an error is thrown in steps 2–5, error handlers run in registration order.
+Whether processing succeeds, closes early, or enters error handling, finalizers
+always run.
 ```
+
+If middleware calls `send()`, `json()`, or `end()`, its response is terminal:
+later middleware, the route handler, and transformers are skipped. A route
+handler's closed response still proceeds through buffered transformers and
+commit. Finalizers remain the always-run observation and cleanup stage.
+
+## Response Transformers
+
+Transformers receive buffered route responses after the handler completes and
+before commit:
+
+```typescript
+app.get('/report', async (_req, res) => {
+  await res.json({ ready: true });
+});
+
+app.onTransform(async (_req, res) => {
+  res.headers.set('X-Transformed', 'true');
+});
+```
+
+Calling `json()`, `send()`, or `end()` in a route handler closes its response but
+does not bypass buffered transformation. Streaming responses never transform.
+Middleware-produced and error-flow responses bypass transformers entirely.
+
+## Headers
+
+Header names are case-insensitive. Filament presents them in conventional
+upper-kebab form, with common exceptions such as `ETag`, `TE`,
+`WWW-Authenticate`, `Sec-WebSocket-Key`, and `RateLimit-Remaining`.
+
+`Headers.add()` preserves multiple field lines for list-valued fields and the
+special `Set-Cookie` response field. Known singleton fields—such as
+`Content-Length`, `Content-Type`, `Host`, `Location`, and `ETag`—use the last
+value. Unknown fields default to repeatable. Use `setRepeatable()` or the
+`Headers` constructor options to override that policy for application-specific
+fields.
 
 ## Path Parameters
 
@@ -244,12 +303,13 @@ app.get('/endpoint',
 
 ## Error Handling
 
-Errors thrown anywhere in the request lifecycle are caught and passed to error handlers:
+Errors thrown anywhere in the request lifecycle are caught and passed to error
+handlers:
 
 ```typescript
 app.onError(async (err, req, res) => {
   console.error('Error:', err);
-  res.status(500).json({ error: err.message });
+  await res.status(500).json({ error: err.message });
 });
 ```
 
@@ -277,8 +337,10 @@ See `src/example.ts` for a complete working example with:
 1. **Immutable Metadata**: `req.endpointMeta` is read-only to prevent middleware from creating hidden dependencies
 2. **Async by Default**: All handlers support `async/await`
 3. **Registration Order**: Middleware runs in strict registration order
-4. **Path Parameters**: Typed as `Record<string, string>` (no advanced type inference)
-5. **Array Replacement**: Arrays in metadata always replace (never merge)
+4. **Metadata-Driven Scope**: Middleware uses endpoint metadata to bow out
+5. **Terminal Closure**: Closing a response skips normal downstream processing
+6. **Path Parameters**: Typed as `Record<string, string>`
+7. **Array Replacement**: Arrays in metadata always replace (never merge)
 
 ## TypeScript
 
@@ -300,8 +362,8 @@ demanding a new major release number.
 The handling of headers changed to ensure all header names are normalized to
 kebab case with initial caps `If-Modified-Since` or `Content-Type`.
 
-- `req.headers['content-type']` is now `req.headers.getHeader('Content-Type')`
-- `res.headers['content-type']` is now `res.getHeader('Content-Type')`
+- `req.headers['content-type']` is now `req.headers.get('Content-Type')`
+- `res.headers['content-type']` is now `res.headers.get('Content-Type')`
 
 Headers are also now stored as tuples so they always appear in insertion order.
 

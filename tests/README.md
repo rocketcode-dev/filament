@@ -1,6 +1,7 @@
 # Filament Tests
 
-This project uses Node.js 24's native test runner with [test-battery](https://www.npmjs.com/package/test-battery) for assertions.
+This project uses Node.js's native test runner with
+[test-battery](https://www.npmjs.com/package/test-battery) for assertions.
 
 ## Running Tests
 
@@ -32,22 +33,20 @@ The tests are organized as follows:
 Tests use Node.js's built-in test runner:
 
 ```typescript
-import { describe, it } from 'node:test';
-import { equal, deepEqual, throws } from 'test-battery/assert';
+import { suite } from 'node:test';
+import TestBattery from 'test-battery';
 
-describe('My feature', () => {
-  it('should do something', () => {
-    equal(1 + 1, 2, 'math should work');
+suite('My feature', () => {
+  TestBattery.test('should do something', battery => {
+    battery.test('math works').value(1 + 1).value(2).equal;
   });
 });
 ```
 
-### Available Assertions from test-battery
+Some focused unit tests use `node:assert/strict` directly. Application and
+lifecycle tests use TestBattery's fluent assertions so asynchronous values can
+be evaluated through the same test declaration.
 
-- `equal(actual, expected, message)` - Strict equality (===)
-- `deepEqual(actual, expected, message)` - Deep equality for objects/arrays
-- `throws(fn, expectedError, message)` - Assert function throws
-- And many more from test-battery's assertion library
 
 ## Test Coverage
 
@@ -77,6 +76,6 @@ The test suite covers:
 
 ## Notes
 
-- Tests use Node 24's experimental TypeScript support (`--experimental-strip-types`)
+- `npm test` compiles TypeScript before invoking Node's test runner.
 - Integration tests start HTTP servers on high-numbered ports (9876+)
 - Tests clean up resources (close servers) after completion

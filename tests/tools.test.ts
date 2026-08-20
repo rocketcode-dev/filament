@@ -79,6 +79,41 @@ describe('tools', () => {
     assert.deepEqual(defaultMeta.values, ['default']);
   });
 
+  test('deepMerge clones special values and circular references', () => {
+    const sharedValue = { count: 1 };
+    const mapKey = { name: 'key' };
+    const defaultMeta: {
+      createdAt: Date;
+      matcher: RegExp;
+      lookup: Map<typeof mapKey, typeof sharedValue>;
+      values: Set<typeof sharedValue>;
+      self?: unknown;
+    } = {
+      createdAt: new Date('2025-01-02T03:04:05.000Z'),
+      matcher: /filament\s+framework/gi,
+      lookup: new Map([[mapKey, sharedValue]]),
+      values: new Set([sharedValue]),
+    };
+    defaultMeta.self = defaultMeta;
+
+    const result = deepMerge(defaultMeta, true);
+    const [[clonedKey, clonedValue]] = [...result.lookup.entries()];
+    const [clonedSetValue] = [...result.values];
+
+    assert.notEqual(result.createdAt, defaultMeta.createdAt);
+    assert.equal(result.createdAt.getTime(), defaultMeta.createdAt.getTime());
+    assert.notEqual(result.matcher, defaultMeta.matcher);
+    assert.equal(result.matcher.source, defaultMeta.matcher.source);
+    assert.equal(result.matcher.flags, defaultMeta.matcher.flags);
+    assert.equal(result.self, result);
+    assert.notEqual(result.lookup, defaultMeta.lookup);
+    assert.notEqual(result.values, defaultMeta.values);
+    assert.notEqual(clonedKey, mapKey);
+    assert.notEqual(clonedValue, sharedValue);
+    assert.equal(clonedSetValue, clonedValue);
+    assert.equal(Object.isFrozen(result), true);
+  });
+
   test('normalizeByteSize accepts binary and familiar byte suffixes', () => {
     for (const value of ['2Mi', '2MiB', '2Mb', '2 MB']) {
       assert.equal(normalizeByteSize(value), 2097152);
@@ -100,5 +135,15 @@ describe('tools', () => {
     assert.equal(normalizeHeaderName('www-authenticate'), 'WWW-Authenticate');
     assert.equal(normalizeHeaderName('x-xss-protection'), 'X-XSS-Protection');
     assert.equal(normalizeHeaderName('x-rate-limit-remaining'), 'X-RateLimit-Remaining');
+    assert.equal(normalizeHeaderName('xRateLimitRemaining'),
+      'X-RateLimit-Remaining');
+    assert.equal(normalizeHeaderName('secWebSocketKey'), 'Sec-WebSocket-Key');
+    assert.equal(normalizeHeaderName('WWWAuthenticate'), 'WWW-Authenticate');
+    assert.equal(normalizeHeaderName('xAPIKey'), 'X-API-Key');
+    assert.equal(normalizeHeaderName('sec-ch-ua'), 'Sec-CH-UA');
+    assert.equal(normalizeHeaderName('mime_version'), 'MIME-Version');
+    assert.equal(normalizeHeaderName('contentMD5'), 'Content-MD5');
+    assert.equal(normalizeHeaderName('X-Rapid-Limit'), 'X-Rapid-Limit');
+    assert.equal(normalizeHeaderName('X-Separate-Limit'), 'X-Separate-Limit');
   });
 });

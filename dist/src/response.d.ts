@@ -19,8 +19,8 @@ export interface ResponseContext {
  * @example
  * ```typescript
  * res.status(200)
- *   .setHeader('Content-Type', 'application/json')
- *   .json({ success: true });
+ *   .headers.set('Content-Type', 'application/json');
+ * await res.json({ success: true });
  * ```
  */
 export declare class Response extends EventEmitter<ResponseEvents> {
@@ -32,6 +32,7 @@ export declare class Response extends EventEmitter<ResponseEvents> {
     private _statusCode;
     private _body;
     private _headers;
+    private _headersSent;
     /**
      * Set to `true` if a chunk has been sent in streaming mode. This will
      * prevent `send()` from calculating `Content-Length`.
@@ -49,9 +50,9 @@ export declare class Response extends EventEmitter<ResponseEvents> {
     /**
      * Set to `true` by `this.end()` and `'pending'` by `this.send()`. Whenever
      * this is truthy, the `this.json()`, `this.send()` and `this.sendChunk()`
-     * methods can no longer be used to change the body. However, when streaming
-     * mode is disabled, you can change the body by setting `this.body` to the
-     * new body. Note the `this.closed` accessor treats `'pending'` as `true`.
+     * send methods can no longer add data. A closed, buffered response remains
+     * mutable for route response transformers until commit. Note the
+     * `this.closed` accessor treats `'pending'` as `true`.
      */
     private _closed;
     /**
@@ -77,9 +78,9 @@ export declare class Response extends EventEmitter<ResponseEvents> {
      */
     get body(): Buffer | null;
     /**
-     * Sets the body of the response. Replaces the current response body. Will
-     * throw an exception if streaming mode is enabled and locked. Will disabled
-     * and lock streaming mode if it isn't already.
+     * Sets or replaces a buffered response body. A closed buffered response can
+     * be changed by route response transformers until it is committed. Assigning
+     * the body locks the response into buffered mode.
      */
     set body(content: string | Buffer);
     get committed(): boolean;

@@ -256,6 +256,10 @@ app.onTransform(async (req, res) => {
 });
 ```
 
+The corresponding route handlers call `json()`. Because those route responses
+are buffered, the transformers can still replace their bodies and headers
+before commit. Streaming responses never enter this transformer chain.
+
 **Try it:**
 
 ```bash
@@ -489,8 +493,9 @@ app.use(async (req) => {
 ```
 
 Middleware advances automatically when it returns. To stop later middleware,
-the route handler, and response transformers, send or end the response. A
-terminal middleware owns that final representation; finalizers still run.
+the route handler, and response transformers, call `json()`, `send()`, or
+`end()`. A terminal middleware owns that final representation; finalizers still
+run.
 
 ### 2. Metadata-Driven Headers
 
@@ -519,7 +524,7 @@ app.use(async (req) => {
 Use the three post-request handlers:
 
 ```typescript
-// Transform successful responses
+// Transform buffered route responses before commit
 app.onTransform(async (req, res) => { /* ... */ });
 
 // Handle errors

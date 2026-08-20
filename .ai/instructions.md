@@ -5,9 +5,10 @@
 - **Meta merging**: Deep clone and merge with defaults - **arrays replace, not merge**
 - **Response flow order**: Middleware → Handler → Transformers → Finalizers
   - Middleware advances automatically while the response remains open
-  - A closed middleware response skips later middleware, handlers, and
+  - A middleware-closed response skips later middleware, handlers, and
     transforms
-  - Transformers only run on success
+  - Buffered route responses transform after the handler and before commit
+  - Streaming responses never transform
   - Finalizers always run (even on errors)
 - **Type pattern**: All classes use `<T extends FrameworkMeta>` generic
 

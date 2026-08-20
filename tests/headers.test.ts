@@ -81,6 +81,66 @@ describe('Headers', () => {
     assert.deepEqual(headers.get('Content-Type'), ['text/plain', 'text/html']);
   });
 
+  test('uses HTTP list and singleton semantics for request headers', () => {
+    const headers = new Headers('request');
+
+    for (const name of [
+      'Authorization',
+      'Content-Length',
+      'Content-Type',
+      'Cookie',
+      'Host',
+      'If-Modified-Since',
+      'Origin',
+      'Range',
+    ]) {
+      assert.equal(headers.isRepeatable(name), false, name);
+    }
+    for (const name of [
+      'Accept',
+      'Accept-Encoding',
+      'Cache-Control',
+      'TE',
+      'Trailer',
+      'Transfer-Encoding',
+      'Upgrade',
+      'Via',
+    ]) {
+      assert.equal(headers.isRepeatable(name), true, name);
+    }
+  });
+
+  test('preserves repeatable response fields including Set-Cookie', () => {
+    const headers = new Headers('response');
+
+    for (const name of [
+      'Content-Length',
+      'Content-Type',
+      'Date',
+      'ETag',
+      'Location',
+      'Retry-After',
+    ]) {
+      assert.equal(headers.isRepeatable(name), false, name);
+    }
+    for (const name of [
+      'Allow',
+      'Proxy-Authenticate',
+      'Set-Cookie',
+      'Vary',
+      'WWW-Authenticate',
+    ]) {
+      assert.equal(headers.isRepeatable(name), true, name);
+    }
+
+    headers.add('Set-Cookie', 'session=one');
+    headers.add('Set-Cookie', 'theme=dark');
+    assert.deepEqual(headers.get('Set-Cookie'), [
+      'session=one',
+      'theme=dark',
+    ]);
+  });
+
   test('changes repeatability and can restore the default', () => {
     const headers = new Headers('response');
 
@@ -94,6 +154,18 @@ describe('Headers', () => {
     headers.setRepeatable('default', 'Content-Type', 'X-Tag');
     assert.equal(headers.isRepeatable('content-type'), false);
     assert.equal(headers.isRepeatable('x-tag'), true);
+  });
+
+  test('changes configured repeatability case-insensitively', () => {
+    const headers = new Headers({
+      defaultNonRepeatableSet: 'response',
+      repeatable: ['Content-Type'],
+      nonRepeatable: ['X-Tag'],
+    });
+
+    headers.setRepeatable('default', 'content-type', 'x-tag');
+    assert.equal(headers.isRepeatable('Content-Type'), false);
+    assert.equal(headers.isRepeatable('X-Tag'), true);
   });
 
   test('returns canonical, immutable snapshots', () => {

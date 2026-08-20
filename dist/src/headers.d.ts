@@ -32,8 +32,8 @@ export declare class Headers {
      */
     get headers(): Record<string, string | string[]>;
     /**
-     * Returns all the headers. This object cannot be changed. Use addHeader and
-     * setHeader to change the response headers.
+     * Returns all the headers. This object cannot be changed. Use `add()` and
+     * `set()` to change headers.
      * @returns The headers
      */
     get headerPairs(): readonly (readonly [string, string])[];

@@ -263,6 +263,10 @@ suite('Response', () => {
                 .value(throws(() => res.headers.set('X-Test', 'value'))).is.true;
             battery.test('should throw on second send')
                 .value(throws(() => res.send('more'))).is.true;
+            battery.test('should throw on body replacement')
+                .value(throws(() => { res.body = 'replacement'; })).is.true;
+            battery.test('should throw on status replacement')
+                .value(throws(() => res.status(204))).is.true;
             battery.test('status unchanged')
                 .value(res.statusCode).value(200).equal;
         });
