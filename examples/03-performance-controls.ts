@@ -27,6 +27,7 @@ interface PerformanceMeta extends FrameworkMeta {
 }
 
 const app = createApp<PerformanceMeta>({
+  application: { maxRequestSize: '2MiB' },
   rateLimit: {
     requests: 60,
     window: 60,
@@ -46,7 +47,7 @@ const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
 const cacheStore = new Map<string, { data: any; expiresAt: number }>();
 
 // Rate limiting middleware
-app.use(async (req, res, next) => {
+app.use(async (req, res) => {
   const { requests, window, strategy } = req.endpointMeta.rateLimit;
   
   // Use IP or a header as identifier (simplified)
@@ -84,7 +85,6 @@ app.use(async (req, res, next) => {
     return;
   }
   
-  await next();
 });
 
 function getCacheKey(req:Request<PerformanceMeta>) {
@@ -92,9 +92,8 @@ function getCacheKey(req:Request<PerformanceMeta>) {
 }
 
 // Cache middleware (check before handler)
-app.use(async (req, res, next) => {
+app.use(async (req, res) => {
   if (!req.endpointMeta.cache.enabled) {
-    await next();
     return;
   }
   
@@ -109,11 +108,10 @@ app.use(async (req, res, next) => {
   }
   
   res.headers.set('X-Cache', 'MISS');
-  await next();
 });
 
 // Priority queue middleware
-app.use(async (req, res, next) => {
+app.use(async (req, res) => {
   const priority = req.endpointMeta.priority;
   
   // Add priority header
@@ -125,13 +123,11 @@ app.use(async (req, res, next) => {
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   
-  await next();
 });
 
 // Cature body for caching
-app.use(async (req, res, next) => {
+app.use(async (_req, res) => {
   res.streaming = false;
-  await next();
 });
 
 // Endpoints with different performance characteristics

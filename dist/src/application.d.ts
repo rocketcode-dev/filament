@@ -14,7 +14,10 @@ import { FrameworkMeta, HttpMethod, AsyncRequestHandler, ErrorHandler, Finalizer
  *   requiresAuth: boolean;
  * }
  *
- * const app = createApp<AppMeta>({ requiresAuth: false });
+ * const app = createApp<AppMeta>({
+ *   application: { maxRequestSize: '2MiB' },
+ *   requiresAuth: false,
+ * });
  *
  * app.get('/users/:id', { requiresAuth: true }, async (req, res) => {
  *   res.json({ id: req.params.id, auth: req.endpointMeta.requiresAuth });
@@ -38,7 +41,7 @@ export declare class Application<T extends FrameworkMeta> {
      */
     route(method: HttpMethod, ...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]): void;
     /**
-     * Merge partial meta with defaults
+     * Merge metadata into a new, normalized, deeply frozen object.
      */
     private mergeMeta;
     get(...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]): void;
@@ -79,6 +82,11 @@ export declare class Application<T extends FrameworkMeta> {
      */
     private executeFinalizers;
     /**
+     * Buffer a request body without retaining data beyond the configured limit.
+     * The stream is still consumed before a size error enters the error flow.
+     */
+    private readRequestBody;
+    /**
      * Handle incoming HTTP request
      */
     private handleRequest;
@@ -112,6 +120,7 @@ export declare class Application<T extends FrameworkMeta> {
  * }
  *
  * const app = createApp<AppMeta>({
+ *   application: { maxRequestSize: '2MiB' },
  *   requiresAuth: false,
  *   rateLimit: 100,
  * });
@@ -127,7 +136,7 @@ export declare class RouteContext<T extends FrameworkMeta> {
     private bases;
     private metas;
     constructor(app: Application<T>, ...basesAndMetas: (string | Partial<T>)[]);
-    route(method: HttpMethod, ...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]): void;
+    route(method: HttpMethod | HttpMethod[], ...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]): void;
     get(...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]): void;
     post(...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]): void;
     put(...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]): void;

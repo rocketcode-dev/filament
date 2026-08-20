@@ -8,18 +8,19 @@ function jitter(value, salt = 0) {
 }
 suite('Request isolation under high concurrency', () => {
     test('does not crosstalk across routes, middleware, transformers, or exception handlers', async () => {
-        const app = createApp({ routeName: 'alpha' });
-        app.use(async (req, _res, next) => {
+        const app = createApp({
+            application: { maxRequestSize: '2MiB' },
+            routeName: 'alpha',
+        });
+        app.use(async (req) => {
             const requestId = String(req.headers.get('x-request-id'));
             await jitter(requestId, 1);
             req.context.requestId = requestId;
             req.context.middleware = `global:${requestId}`;
-            await next();
         });
-        app.use('/alpha', async (req, _res, next) => {
+        app.use('/alpha', async (req) => {
             await jitter(req.context.requestId, 2);
             req.context.middleware = `alpha:${req.context.requestId}`;
-            await next();
         });
         const success = async (req, res) => {
             await jitter(req.context.requestId, 3);

@@ -18,23 +18,22 @@ interface ApiMeta extends FrameworkMeta {
 }
 
 const app = createApp<ApiMeta>({
+  application: { maxRequestSize: '2MiB' },
   apiVersion: 'v2',
   responseFormat: 'standard',
 });
 
 // Deprecation warning middleware
-app.use(async (req, res, next) => {
+app.use(async (req, res) => {
   if (req.endpointMeta.deprecated) {
     res.headers.set('X-API-Deprecated', 'true');
     res.headers.set('X-API-Sunset', '2026-12-31');
   }
-  await next();
 });
 
 // Version header middleware
-app.use(async (req, res, next) => {
+app.use(async (req, res) => {
   res.headers.set('X-API-Version', req.endpointMeta.apiVersion);
-  await next();
 });
 
 // Mock data

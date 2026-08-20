@@ -3,7 +3,8 @@ import { URL } from 'url';
 import { Headers, } from './types.js';
 import { Response } from './response.js';
 import { pathToRegex, matchPath } from './router.js';
-import { deepMerge } from './tools.js';
+import { HttpError } from './errors.js';
+import { deepMerge, normalizeByteSize } from './tools.js';
 /**
  * Main Application class for Filament.
  *
@@ -19,7 +20,10 @@ import { deepMerge } from './tools.js';
  *   requiresAuth: boolean;
  * }
  *
- * const app = createApp<AppMeta>({ requiresAuth: false });
+ * const app = createApp<AppMeta>({
+ *   application: { maxRequestSize: '2MiB' },
+ *   requiresAuth: false,
+ * });
  *
  * app.get('/users/:id', { requiresAuth: true }, async (req, res) => {
  *   res.json({ id: req.params.id, auth: req.endpointMeta.requiresAuth });
@@ -36,15 +40,14 @@ export class Application {
         this.errorHandlers = [];
         this.finalizers = [];
         this.transformers = [];
-        this.defaultMeta = defaultMeta;
+        this.defaultMeta = this.mergeMeta(defaultMeta);
     }
     /**
      * Register a route. Supports multiple paths, metadata, and a single handler.
      */
     route(method, ...pmh) {
-        // Start with defaults, then merge route-specific meta
-        let mergedMeta = this.defaultMeta;
         const paths = [];
+        const metas = [];
         let handler = null;
         for (const p of pmh) {
             if (typeof p === 'string') {
@@ -59,13 +62,13 @@ export class Application {
                 }
             }
             else if (typeof p === 'object') {
-                // Assume it's meta
-                mergedMeta = this.mergeMeta(mergedMeta, p);
+                metas.push(p);
             }
         }
         if (!handler) {
             throw new Error('No handler provided for route');
         }
+        const mergedMeta = this.mergeMeta(this.defaultMeta, ...metas);
         for (const path of paths) {
             const { pattern, paramNames } = pathToRegex(path);
             this.routes.push({
@@ -79,12 +82,12 @@ export class Application {
         }
     }
     /**
-     * Merge partial meta with defaults
+     * Merge metadata into a new, normalized, deeply frozen object.
      */
-    mergeMeta(original, partial) {
-        let result = { ...original };
-        result = deepMerge(result, partial);
-        return result;
+    mergeMeta(defaultMeta, ...sources) {
+        const result = deepMerge(defaultMeta, ...sources);
+        result.application.maxRequestSize = normalizeByteSize(result.application.maxRequestSize);
+        return deepMerge(result, true);
     }
     // HTTP method helpers
     get(...pmh) {
@@ -135,50 +138,46 @@ export class Application {
      * Execute middleware chain
      */
     async executeMiddlewareChain(req, res, middlewares) {
-        let currentIndex = 0;
-        const next = async () => {
-            if (res.closed) {
-                return;
-            }
-            if (currentIndex >= middlewares.length) {
-                return;
-            }
-            const middleware = middlewares[currentIndex++];
-            await middleware(req, res, next);
-        };
-        await next();
+        for (const middleware of middlewares) {
+            await middleware(req, res);
+            if (res.closed)
+                return false;
+        }
+        return true;
     }
     /**
      * Execute error handlers
      */
     async executeErrorHandlers(err, req, res) {
-        let currentIndex = 0;
-        const defaultHandler = async () => {
+        const defaultHandler = async (error) => {
             // Once headers have escaped, the status and body can no longer be
             // replaced. The server-level error path will terminate the connection.
             if (res.committed || res.headers.frozen) {
                 return;
             }
-            res.status(500);
+            const statusCode = error instanceof HttpError ? error.statusCode : 500;
+            const message = statusCode < 500
+                ? error.message
+                : 'Internal Server Error';
+            res.status(statusCode);
             res.headers.set('Content-Type', 'application/json');
-            res.body = JSON.stringify({ error: 'Internal Server Error' });
+            res.body = JSON.stringify({ error: message });
             await res.end();
         };
-        const next = async () => {
-            if (currentIndex >= this.errorHandlers.length) {
-                await defaultHandler();
-                return;
-            }
-            const handler = this.errorHandlers[currentIndex++];
+        let currentError = err;
+        for (const handler of this.errorHandlers) {
             try {
-                await handler(err, req, res, next);
+                await handler(currentError, req, res);
             }
-            catch (handlerError) {
-                console.error('Error in error handler:', handlerError);
-                await next();
+            catch (caught) {
+                currentError = caught instanceof Error
+                    ? caught
+                    : new Error(String(caught));
             }
-        };
-        await next();
+            if (res.closed)
+                return;
+        }
+        await defaultHandler(currentError);
     }
     /**
      * Execute response transformers
@@ -211,43 +210,56 @@ export class Application {
         }
     }
     /**
+     * Buffer a request body without retaining data beyond the configured limit.
+     * The stream is still consumed before a size error enters the error flow.
+     */
+    async readRequestBody(nodeReq, maxRequestSize) {
+        const chunks = [];
+        let totalLength = 0;
+        let sizeExceeded = false;
+        for await (const chunk of nodeReq) {
+            const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+            totalLength += buffer.length;
+            if (totalLength > maxRequestSize) {
+                sizeExceeded = true;
+                chunks.length = 0;
+            }
+            else if (!sizeExceeded) {
+                chunks.push(buffer);
+            }
+        }
+        if (sizeExceeded) {
+            throw new HttpError(413, 'Payload Too Large');
+        }
+        return Buffer.concat(chunks, totalLength);
+    }
+    /**
      * Handle incoming HTTP request
      */
     async handleRequest(nodeReq, nodeRes) {
-        const url = new URL(nodeReq.url || '/', `http://${nodeReq.headers.host || 'localhost'}`);
         const method = (nodeReq.method || 'GET').toUpperCase();
-        const path = url.pathname;
-        // Find matching route
-        let matchedRoute;
-        let params = {};
-        for (const route of this.routes) {
-            if (route.method !== method)
-                continue;
-            const match = matchPath(path, route.pattern, route.paramNames);
-            if (match) {
-                matchedRoute = route;
-                params = match.params;
-                break;
-            }
-        }
-        if (!matchedRoute) {
-            nodeRes.statusCode = 404;
-            nodeRes.end(JSON.stringify({ error: 'Not Found' }));
-            return;
-        }
-        // Parse query parameters
+        let path = nodeReq.url?.split('?', 1)[0] || '/';
         const query = {};
-        url.searchParams.forEach((value, key) => {
-            const existing = query[key];
-            if (existing) {
-                query[key] = Array.isArray(existing)
-                    ? [...existing, value]
-                    : [existing, value];
-            }
-            else {
-                query[key] = value;
-            }
-        });
+        let requestTargetError;
+        try {
+            const url = new URL(nodeReq.url || '/', `http://${nodeReq.headers.host || 'localhost'}`);
+            path = url.pathname;
+            // Parse query parameters
+            url.searchParams.forEach((value, key) => {
+                const existing = query[key];
+                if (existing) {
+                    query[key] = Array.isArray(existing)
+                        ? [...existing, value]
+                        : [existing, value];
+                }
+                else {
+                    query[key] = value;
+                }
+            });
+        }
+        catch {
+            requestTargetError = new HttpError(400, 'Bad Request');
+        }
         // Parse headers
         const headers = {};
         Object.entries(nodeReq.headers).forEach(([key, value]) => {
@@ -255,52 +267,74 @@ export class Application {
                 headers[key] = value;
             }
         });
-        // Create request object
-        const req = {
+        // Create a base request before routing so routing failures can use the
+        // standard error and finalizer flow.
+        let req = {
             method,
             path,
-            params,
+            params: {},
             query,
             headers: new Headers('request', headers),
             context: {}, // Initialize empty context
-            endpointMeta: matchedRoute.meta,
+            endpointMeta: this.defaultMeta,
             _startTime: Date.now(),
         };
-        // Read body for POST/PUT/PATCH
-        if (['POST', 'PUT', 'PATCH'].includes(method)) {
-            const chunks = [];
-            for await (const chunk of nodeReq) {
-                chunks.push(chunk);
-            }
-            req.body = Buffer.concat(chunks);
-        }
         // Create response object
         const res = new Response(nodeRes, { hasTransformers: !!this.transformers.length });
         try {
+            if (requestTargetError)
+                throw requestTargetError;
+            let matchedRoute;
+            let params = {};
+            for (const route of this.routes) {
+                if (route.method !== method)
+                    continue;
+                const match = matchPath(path, route.pattern, route.paramNames);
+                if (match) {
+                    matchedRoute = route;
+                    params = match.params;
+                    break;
+                }
+            }
+            if (!matchedRoute) {
+                throw new HttpError(404, 'Not Found');
+            }
+            req = {
+                ...req,
+                params,
+                endpointMeta: matchedRoute.meta,
+            };
+            // Buffer request bodies for methods supported by the current API.
+            if (['POST', 'PUT', 'PATCH'].includes(method)) {
+                req.body = await this.readRequestBody(nodeReq, matchedRoute.meta.application.maxRequestSize);
+            }
             // Filter applicable middleware (by path if specified)
             const applicableMiddleware = this.middlewares
                 .filter((mw) => !mw.path || path.startsWith(mw.path))
                 .map((mw) => mw.handler);
             // Execute middleware chain
-            await this.executeMiddlewareChain(req, res, applicableMiddleware);
-            // If response already sent by middleware, skip handler
-            if (!res.closed) {
-                // Execute route handler
-                await matchedRoute.handler(req, res, async () => { });
-            }
-            // The application owns the route boundary: handlers may end explicitly,
-            // but an implicit end is supplied when they return without doing so.
-            await res.end();
-            // Transform every buffered response, including explicit error
-            // responses. Exceptions take the catch path below and are not passed
-            // through the transformer chain again.
-            if (!res.streaming && !res.committed) {
-                await this.executeTransformers(req, res);
+            const shouldContinue = await this.executeMiddlewareChain(req, res, applicableMiddleware);
+            if (shouldContinue) {
+                await matchedRoute.handler(req, res);
+                // The application owns the route boundary: handlers may end
+                // explicitly, but an implicit end is supplied when they return without
+                // doing so.
+                await res.end();
+                // Middleware-produced responses are already final. Only route-handler
+                // responses proceed through the transformer chain.
+                if (!res.streaming && !res.committed) {
+                    await this.executeTransformers(req, res);
+                }
             }
             // make sure the response is over.
             await res.commit();
         }
-        catch (err) {
+        catch (caught) {
+            const err = caught instanceof URIError
+                ? new HttpError(400, 'Bad Request')
+                : caught instanceof Error
+                    ? caught
+                    : new Error(String(caught));
             await this.executeErrorHandlers(err, req, res);
         }
         finally {
@@ -393,6 +427,7 @@ export class Application {
  * }
  *
  * const app = createApp<AppMeta>({
+ *   application: { maxRequestSize: '2MiB' },
  *   requiresAuth: false,
  *   rateLimit: 100,
  * });
@@ -446,7 +481,9 @@ export class RouteContext {
         if (null === handler) {
             throw new Error('No handler provided for route');
         }
-        this.app.route(method, ...paths, ...metas, handler);
+        for (const m of Array.isArray(method) ? method : [method]) {
+            this.app.route(m, ...paths, ...metas, handler);
+        }
     }
     // HTTP method helpers
     get(...pmh) {

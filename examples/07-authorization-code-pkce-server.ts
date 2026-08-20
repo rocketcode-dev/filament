@@ -23,17 +23,18 @@ interface AuthorizationCode {
   subject: string;
 }
 
-const app = createApp<OAuthMeta>({});
+const app = createApp<OAuthMeta>({
+  application: { maxRequestSize: '2MiB' },
+});
 const codes = new Map<string, AuthorizationCode>();
 const tokens = new Map<string, AccessToken>();
 const redirectUri = 'http://127.0.0.1/pkce/callback';
 
 // Apply bearer-token and scope validation only to routes whose metadata names
 // a required scope. OAuth protocol endpoints remain public.
-app.use(async (req, res, next) => {
+app.use(async (req, res) => {
   const requiredScope = req.endpointMeta.requiredScope;
   if (!requiredScope) {
-    await next();
     return;
   }
   const token = activeToken(req, tokens, requiredScope);
@@ -43,7 +44,6 @@ app.use(async (req, res, next) => {
     return;
   }
   req.context.accessToken = token;
-  await next();
 });
 
 // Authorization endpoint: require the S256 PKCE method and bind the generated

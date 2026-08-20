@@ -187,8 +187,8 @@ npx tsx examples/04-observability.ts --port 3004
 
 - Tracing middleware samples requests and propagates or generates trace/span
   identifiers.
-- Metrics middleware times the downstream work and records configured
-  dimensions.
+- Metrics middleware records the start time; the finalizer measures completion
+  and records the configured dimensions.
 - Logging middleware emits structured or human-readable request-start events.
 - A finalizer completes traces and logs request completion.
 
@@ -481,13 +481,16 @@ native response's write lifecycle.
 Middleware inspects `req.endpointMeta` to decide behavior:
 
 ```typescript
-app.use(async (req, res, next) => {
+app.use(async (req) => {
   if (req.endpointMeta.someProperty) {
     // Do something
   }
-  await next();
 });
 ```
+
+Middleware advances automatically when it returns. To stop later middleware,
+the route handler, and response transformers, send or end the response. A
+terminal middleware owns that final representation; finalizers still run.
 
 ### 2. Metadata-Driven Headers
 
@@ -506,9 +509,8 @@ app.onTransform(async (req, res) => {
 Attach data to request for downstream use:
 
 ```typescript
-app.use(async (req, res, next) => {
+app.use(async (req) => {
   req.context.user = authenticateUser(req);
-  await next();
 });
 ```
 

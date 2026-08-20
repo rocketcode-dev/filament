@@ -1,4 +1,4 @@
-import { createApp, FrameworkMeta } from '../src/index.js';
+import { createApp, FrameworkMeta, HttpError } from '../src/index.js';
 import { parseArgs } from 'node:util';
 
 const { port: portOption, silent = false } = parseArgs({
@@ -18,6 +18,7 @@ interface BlogMeta extends FrameworkMeta {
 }
 
 const app = createApp<BlogMeta>({
+  application: { maxRequestSize: '2MiB' },
   requiresAuth: false,
   rateLimit: 100,
 });
@@ -36,7 +37,7 @@ const posts = new Map([
 ]);
 
 // Authentication middleware
-app.use(async (req, res, next) => {
+app.use(async (req, res) => {
   if (req.endpointMeta.requiresAuth) {
     let token = req.headers.get('authorization');
 
@@ -59,11 +60,10 @@ app.use(async (req, res, next) => {
     (req as any).user = user;
   }
   
-  await next();
 });
 
 // Role-based authorization middleware
-app.use(async (req, res, next) => {
+app.use(async (req, res) => {
   const requiredRole = req.endpointMeta.role;
   
   if (requiredRole) {
@@ -82,7 +82,6 @@ app.use(async (req, res, next) => {
     }
   }
   
-  await next();
 });
 
 // Public endpoints
@@ -166,6 +165,9 @@ app.delete('/posts/:id',
 
 // Error handling
 app.onError(async (err, req, res) => {
+  if (err instanceof HttpError) {
+    return;
+  }
   console.error('Error:', err);
   res.status(500).json({ error: 'Internal server error' });
 });

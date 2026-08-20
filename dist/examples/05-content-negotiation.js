@@ -5,6 +5,7 @@ const { port: portOption, silent = false } = parseArgs({
 }).values;
 const port = Number(portOption ?? 0);
 const app = createApp({
+    application: { maxRequestSize: '2MiB' },
     formats: ['json'],
     defaultFormat: 'json',
     compress: false,
@@ -68,7 +69,7 @@ function toHTML(data, title = 'Data') {
 </html>`.trim();
 }
 // Content negotiation middleware
-app.use(async (req, res, next) => {
+app.use(async (req, res) => {
     const acceptHeader = req.headers.get('accept') || '';
     const formatParam = req.query.format;
     const supportedFormats = req.endpointMeta.formats;
@@ -92,7 +93,6 @@ app.use(async (req, res, next) => {
     }
     // Store format in request
     req.responseFormat = requestedFormat;
-    await next();
 });
 // Multi-format endpoints
 // Books list - supports all formats

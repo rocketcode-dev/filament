@@ -20,6 +20,7 @@ interface ContentMeta extends FrameworkMeta {
 }
 
 const app = createApp<ContentMeta>({
+  application: { maxRequestSize: '2MiB' },
   formats: ['json'],
   defaultFormat: 'json',
   compress: false,
@@ -96,7 +97,7 @@ function toHTML(data: any[], title: string = 'Data'): string {
 }
 
 // Content negotiation middleware
-app.use(async (req, res, next) => {
+app.use(async (req, res) => {
   const acceptHeader = req.headers.get('accept') as string || '';
   const formatParam = req.query.format as string;
   const supportedFormats = req.endpointMeta.formats;
@@ -121,7 +122,6 @@ app.use(async (req, res, next) => {
   // Store format in request
   (req as any).responseFormat = requestedFormat;
 
-  await next();
 });
 
 // Multi-format endpoints

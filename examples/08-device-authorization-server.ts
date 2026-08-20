@@ -23,17 +23,18 @@ interface DeviceGrant {
   expiresAt: number;
 }
 
-const app = createApp<OAuthMeta>({});
+const app = createApp<OAuthMeta>({
+  application: { maxRequestSize: '2MiB' },
+});
 const devices = new Map<string, DeviceGrant>();
 const deviceByUserCode = new Map<string, string>();
 const tokens = new Map<string, AccessToken>();
 
 // Metadata-driven bearer middleware protects only resource endpoints and puts
 // the validated token in request-local context for the endpoint handler.
-app.use(async (req, res, next) => {
+app.use(async (req, res) => {
   const requiredScope = req.endpointMeta.requiredScope;
   if (!requiredScope) {
-    await next();
     return;
   }
   const token = activeToken(req, tokens, requiredScope);
@@ -43,7 +44,6 @@ app.use(async (req, res, next) => {
     return;
   }
   req.context.accessToken = token;
-  await next();
 });
 
 // Device authorization endpoint: issue a secret device code for polling and a

@@ -20,6 +20,11 @@ export interface FrameworkMeta {
      * @internal Reserved for framework use
      */
     _internal?: unknown;
+    /** Framework-level behavior shared by endpoint metadata. */
+    application: {
+        /** Maximum buffered request body size, as bytes or a byte-size string. */
+        maxRequestSize: number | string;
+    };
 }
 export { Headers };
 /**
@@ -30,14 +35,6 @@ export type InitHeader = Record<string, string | string[]> | [
     string,
     string | string[]
 ];
-/**
- * Middleware next function for chaining middleware and handlers.
- * Call this to proceed to the next middleware or route handler.
- *
- * @returns Either void or a Promise that resolves when the next handler
- *  completes
- */
-export type NextFunction = () => void | Promise<void>;
 /**
  * Incoming HTTP request object passed to handlers and middleware.
  *
@@ -75,32 +72,33 @@ export interface Request<T extends FrameworkMeta = FrameworkMeta> {
     _startTime?: number;
 }
 /**
- * Request handler function type for routes and middleware.
+ * Request handler function type for routes and middleware. Middleware advances
+ * automatically when it returns with an open response. Closing the response
+ * skips later middleware, the route handler, and response transformers.
  *
  * @template T - The application metadata type
  * @param req - The incoming request object
  * @param res - The response object
- * @param next - Function to call the next middleware in the chain
  *
  * @example
  * ```typescript
- * const handler: AsyncRequestHandler<AppMeta> = async (req, res, next) => {
+ * const handler: AsyncRequestHandler<AppMeta> = async (req, res) => {
  *   if (req.endpointMeta.requiresAuth) {
  *     // check auth
  *   }
- *   await next();
  * };
  * ```
  */
-export type AsyncRequestHandler<T extends FrameworkMeta = FrameworkMeta> = (req: Request<T>, res: Response, next: NextFunction) => void | Promise<void>;
+export type AsyncRequestHandler<T extends FrameworkMeta = FrameworkMeta> = (req: Request<T>, res: Response) => void | Promise<void>;
 /**
  * Error handler function type for handling exceptions in request processing.
+ * Returning with an open response advances to the next registered error
+ * handler; closing it marks the error as handled.
  *
  * @template T - The application metadata type
  * @param err - The error that was thrown
  * @param req - The incoming request object
  * @param res - The response object
- * @param next - Function to call the next error handler
  *
  * @example
  * ```typescript
@@ -113,7 +111,7 @@ export type AsyncRequestHandler<T extends FrameworkMeta = FrameworkMeta> = (req:
  * });
  * ```
  */
-export type ErrorHandler<T extends FrameworkMeta> = (err: Error, req: Request<T>, res: Response, next: NextFunction) => void | Promise<void>;
+export type ErrorHandler<T extends FrameworkMeta> = (err: Error, req: Request<T>, res: Response) => void | Promise<void>;
 /**
  * Finalizer function type for cleanup operations after response is sent.
  * These run regardless of success or error and should not throw.

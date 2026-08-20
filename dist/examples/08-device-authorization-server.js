@@ -6,16 +6,17 @@ const { values } = parseArgs({
 });
 const port = Number(values.port ?? 0);
 const silent = values.silent ?? false;
-const app = createApp({});
+const app = createApp({
+    application: { maxRequestSize: '2MiB' },
+});
 const devices = new Map();
 const deviceByUserCode = new Map();
 const tokens = new Map();
 // Metadata-driven bearer middleware protects only resource endpoints and puts
 // the validated token in request-local context for the endpoint handler.
-app.use(async (req, res, next) => {
+app.use(async (req, res) => {
     const requiredScope = req.endpointMeta.requiredScope;
     if (!requiredScope) {
-        await next();
         return;
     }
     const token = activeToken(req, tokens, requiredScope);
@@ -25,7 +26,6 @@ app.use(async (req, res, next) => {
         return;
     }
     req.context.accessToken = token;
-    await next();
 });
 // Device authorization endpoint: issue a secret device code for polling and a
 // short user code that can safely be typed on a second device.

@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import { describe } from 'node:test';
 import TestBattery from 'test-battery';
 import { pathToRegex, matchPath } from '../src/router.js';
@@ -55,6 +56,32 @@ describe('Router utilities', () => {
       battery.test('should match full path')
         .value(pattern.test('/api/v1/users/123/posts/456/comments')).is.true;
     });
+
+    TestBattery.test('should escape regex syntax in literal paths', (battery) => {
+      const version = pathToRegex('/api/v1.0');
+      const plus = pathToRegex('/literal+plus');
+      battery.test('dot should remain literal')
+        .value(version.pattern.test('/api/v1x0')).is.false;
+      battery.test('literal version should match')
+        .value(version.pattern.test('/api/v1.0')).is.true;
+      battery.test('plus should remain literal')
+        .value(plus.pattern.test('/literal+plus')).is.true;
+      battery.test('plus should not become a quantifier')
+        .value(plus.pattern.test('/literalplus')).is.false;
+    });
+
+    TestBattery.test('should support parameters with literal suffixes', battery => {
+      const { pattern, paramNames } = pathToRegex('/files/:name.json');
+      const match = matchPath('/files/readme.json', pattern, paramNames);
+      battery.test('should preserve the parameter name')
+        .value(paramNames).value(['name']).deepEqual;
+      battery.test('should keep the suffix out of the value')
+        .value(match?.params).value({ name: 'readme' }).deepEqual;
+    });
+
+    TestBattery.test('should reject paths without a leading slash', () => {
+      assert.throws(() => pathToRegex(':404'), /must start with/);
+    });
   });
 
   describe('matchPath', () => {
@@ -90,6 +117,13 @@ describe('Router utilities', () => {
         .value(match !== null).is.true;
       battery.test('should extract hyphenated id')
         .value(match?.params).value({ id: 'user-123' }).deepEqual;
+    });
+
+    TestBattery.test('should decode parameter values', battery => {
+      const { pattern, paramNames } = pathToRegex('/users/:id');
+      const match = matchPath('/users/Thomas%20Smith', pattern, paramNames);
+      battery.test('should expose a decoded parameter')
+        .value(match?.params).value({ id: 'Thomas Smith' }).deepEqual;
     });
 
     TestBattery.test('should not match paths that are too long', (battery) => {

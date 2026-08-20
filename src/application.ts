@@ -14,7 +14,8 @@ import {
 } from './types.js';
 import { Response } from './response.js';
 import { pathToRegex, matchPath } from './router.js';
-import { deepMerge } from './tools.js';
+import { HttpError } from './errors.js';
+import { deepMerge, normalizeByteSize } from './tools.js';
 
 /**
  * Main Application class for Filament.
@@ -31,7 +32,10 @@ import { deepMerge } from './tools.js';
  *   requiresAuth: boolean;
  * }
  * 
- * const app = createApp<AppMeta>({ requiresAuth: false });
+ * const app = createApp<AppMeta>({
+ *   application: { maxRequestSize: '2MiB' },
+ *   requiresAuth: false,
+ * });
  * 
  * app.get('/users/:id', { requiresAuth: true }, async (req, res) => {
  *   res.json({ id: req.params.id, auth: req.endpointMeta.requiresAuth });
@@ -51,7 +55,7 @@ export class Application<T extends FrameworkMeta> {
   private server?: http.Server;
 
   constructor(defaultMeta: T) {
-    this.defaultMeta = defaultMeta;
+    this.defaultMeta = this.mergeMeta(defaultMeta);
   }
 
   /**
@@ -61,10 +65,8 @@ export class Application<T extends FrameworkMeta> {
     method: HttpMethod,
     ...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]
   ): void {
-    // Start with defaults, then merge route-specific meta
-    let mergedMeta = this.defaultMeta;
-
     const paths: string[] = [];
+    const metas: Partial<T>[] = [];
     let handler: AsyncRequestHandler<T> | null = null;
 
     for (const p of pmh) {
@@ -77,13 +79,13 @@ export class Application<T extends FrameworkMeta> {
           throw new Error('Multiple handlers provided for route');
         }
       } else if (typeof p === 'object') {
-        // Assume it's meta
-        mergedMeta = this.mergeMeta(mergedMeta, p);
+        metas.push(p);
       }
     }
     if (!handler) {
       throw new Error('No handler provided for route');
     }
+    const mergedMeta = this.mergeMeta(this.defaultMeta, ...metas);
 
     for (const path of paths) {
       const { pattern, paramNames } = pathToRegex(path);
@@ -99,12 +101,14 @@ export class Application<T extends FrameworkMeta> {
   }
 
   /**
-   * Merge partial meta with defaults
+   * Merge metadata into a new, normalized, deeply frozen object.
    */
-  private mergeMeta(original: T, partial: Partial<T>): T {
-    let result: T = { ...original };
-    result = deepMerge(result, partial);
-    return result;
+  private mergeMeta(defaultMeta: T, ...sources: Partial<T>[]): T {
+    const result = deepMerge(defaultMeta, ...sources);
+    result.application.maxRequestSize = normalizeByteSize(
+      result.application.maxRequestSize,
+    );
+    return deepMerge(result, true);
   }
 
   // HTTP method helpers
@@ -180,22 +184,12 @@ export class Application<T extends FrameworkMeta> {
     req: Request<T>,
     res: Response,
     middlewares: AsyncRequestHandler<T>[]
-  ): Promise<void> {
-    let currentIndex = 0;
-
-    const next = async (): Promise<void> => {
-      if (res.closed) {
-        return;
-      }
-      if (currentIndex >= middlewares.length) {
-        return;
-      }
-
-      const middleware = middlewares[currentIndex++];
-      await middleware(req, res, next);
-    };
-
-    await next();
+  ): Promise<boolean> {
+    for (const middleware of middlewares) {
+      await middleware(req, res);
+      if (res.closed) return false;
+    }
+    return true;
   }
 
   /**
@@ -206,36 +200,34 @@ export class Application<T extends FrameworkMeta> {
     req: Request<T>,
     res: Response
   ): Promise<void> {
-    let currentIndex = 0;
-
-    const defaultHandler = async (): Promise<void> => {
+    const defaultHandler = async (error: Error): Promise<void> => {
       // Once headers have escaped, the status and body can no longer be
       // replaced. The server-level error path will terminate the connection.
       if (res.committed || res.headers.frozen) {
         return;
       }
-      res.status(500);
+      const statusCode = error instanceof HttpError ? error.statusCode : 500;
+      const message = statusCode < 500
+        ? error.message
+        : 'Internal Server Error';
+      res.status(statusCode);
       res.headers.set('Content-Type', 'application/json');
-      res.body = JSON.stringify({ error: 'Internal Server Error' });
+      res.body = JSON.stringify({ error: message });
       await res.end();
     };
 
-    const next = async (): Promise<void> => {
-      if (currentIndex >= this.errorHandlers.length) {
-        await defaultHandler();
-        return;
-      }
-
-      const handler = this.errorHandlers[currentIndex++];
+    let currentError = err;
+    for (const handler of this.errorHandlers) {
       try {
-        await handler(err, req, res, next);
-      } catch (handlerError) {
-        console.error('Error in error handler:', handlerError);
-        await next();
+        await handler(currentError, req, res);
+      } catch (caught) {
+        currentError = caught instanceof Error
+          ? caught
+          : new Error(String(caught));
       }
-    };
-
-    await next();
+      if (res.closed) return;
+    }
+    await defaultHandler(currentError);
   }
 
   /**
@@ -271,52 +263,67 @@ export class Application<T extends FrameworkMeta> {
   }
 
   /**
+   * Buffer a request body without retaining data beyond the configured limit.
+   * The stream is still consumed before a size error enters the error flow.
+   */
+  private async readRequestBody(
+    nodeReq: http.IncomingMessage,
+    maxRequestSize: number,
+  ): Promise<Buffer> {
+    const chunks: Buffer[] = [];
+    let totalLength = 0;
+    let sizeExceeded = false;
+
+    for await (const chunk of nodeReq) {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      totalLength += buffer.length;
+      if (totalLength > maxRequestSize) {
+        sizeExceeded = true;
+        chunks.length = 0;
+      } else if (!sizeExceeded) {
+        chunks.push(buffer);
+      }
+    }
+
+    if (sizeExceeded) {
+      throw new HttpError(413, 'Payload Too Large');
+    }
+    return Buffer.concat(chunks, totalLength);
+  }
+
+  /**
    * Handle incoming HTTP request
    */
   private async handleRequest(
     nodeReq: http.IncomingMessage,
     nodeRes: http.ServerResponse
   ): Promise<void> {
-    const url = new URL(
-      nodeReq.url || '/',
-      `http://${nodeReq.headers.host || 'localhost'}`
-    );
     const method = (nodeReq.method || 'GET').toUpperCase() as HttpMethod;
-    const path = url.pathname;
-
-    // Find matching route
-    let matchedRoute: Route<T> | undefined;
-    let params: Record<string, string> = {};
-
-    for (const route of this.routes) {
-      if (route.method !== method) continue;
-
-      const match = matchPath(path, route.pattern, route.paramNames);
-      if (match) {
-        matchedRoute = route;
-        params = match.params;
-        break;
-      }
-    }
-
-    if (!matchedRoute) {
-      nodeRes.statusCode = 404;
-      nodeRes.end(JSON.stringify({ error: 'Not Found' }));
-      return;
-    }
-
-    // Parse query parameters
+    let path = nodeReq.url?.split('?', 1)[0] || '/';
     const query: Record<string, string | string[]> = {};
-    url.searchParams.forEach((value, key) => {
-      const existing = query[key];
-      if (existing) {
-        query[key] = Array.isArray(existing)
-          ? [...existing, value]
-          : [existing, value];
-      } else {
-        query[key] = value;
-      }
-    });
+    let requestTargetError: HttpError | undefined;
+
+    try {
+      const url = new URL(
+        nodeReq.url || '/',
+        `http://${nodeReq.headers.host || 'localhost'}`
+      );
+      path = url.pathname;
+
+      // Parse query parameters
+      url.searchParams.forEach((value, key) => {
+        const existing = query[key];
+        if (existing) {
+          query[key] = Array.isArray(existing)
+            ? [...existing, value]
+            : [existing, value];
+        } else {
+          query[key] = value;
+        }
+      });
+    } catch {
+      requestTargetError = new HttpError(400, 'Bad Request');
+    }
 
     // Parse headers
     const headers: Record<string, string | string[]> = {};
@@ -326,26 +333,18 @@ export class Application<T extends FrameworkMeta> {
       }
     });
 
-    // Create request object
-    const req: Request<T> = {
+    // Create a base request before routing so routing failures can use the
+    // standard error and finalizer flow.
+    let req: Request<T> = {
       method,
       path,
-      params,
+      params: {},
       query,
       headers: new Headers('request', headers),
       context: {}, // Initialize empty context
-      endpointMeta: matchedRoute.meta,
+      endpointMeta: this.defaultMeta,
       _startTime: Date.now(),
     };
-
-    // Read body for POST/PUT/PATCH
-    if (['POST', 'PUT', 'PATCH'].includes(method)) {
-      const chunks: Buffer[] = [];
-      for await (const chunk of nodeReq) {
-        chunks.push(chunk);
-      }
-      req.body = Buffer.concat(chunks);
-    }
 
     // Create response object
     const res = new Response(
@@ -354,35 +353,76 @@ export class Application<T extends FrameworkMeta> {
     );
 
     try {
+      if (requestTargetError) throw requestTargetError;
+
+      let matchedRoute: Route<T> | undefined;
+      let params: Record<string, string> = {};
+
+      for (const route of this.routes) {
+        if (route.method !== method) continue;
+
+        const match = matchPath(path, route.pattern, route.paramNames);
+        if (match) {
+          matchedRoute = route;
+          params = match.params;
+          break;
+        }
+      }
+
+      if (!matchedRoute) {
+        throw new HttpError(404, 'Not Found');
+      }
+
+      req = {
+        ...req,
+        params,
+        endpointMeta: matchedRoute.meta,
+      };
+
+      // Buffer request bodies for methods supported by the current API.
+      if (['POST', 'PUT', 'PATCH'].includes(method)) {
+        req.body = await this.readRequestBody(
+          nodeReq,
+          matchedRoute.meta.application.maxRequestSize as number,
+        );
+      }
+
       // Filter applicable middleware (by path if specified)
       const applicableMiddleware = this.middlewares
         .filter((mw) => !mw.path || path.startsWith(mw.path))
         .map((mw) => mw.handler);
 
       // Execute middleware chain
-      await this.executeMiddlewareChain(req, res, applicableMiddleware);
+      const shouldContinue = await this.executeMiddlewareChain(
+        req,
+        res,
+        applicableMiddleware,
+      );
 
-      // If response already sent by middleware, skip handler
-      if (!res.closed) {
-        // Execute route handler
-        await matchedRoute.handler(req, res, async () => {});
-      }
+      if (shouldContinue) {
+        await matchedRoute.handler(req, res);
 
-      // The application owns the route boundary: handlers may end explicitly,
-      // but an implicit end is supplied when they return without doing so.
-      await res.end();
+        // The application owns the route boundary: handlers may end
+        // explicitly, but an implicit end is supplied when they return without
+        // doing so.
+        await res.end();
 
-      // Transform every buffered response, including explicit error
-      // responses. Exceptions take the catch path below and are not passed
-      // through the transformer chain again.
-      if (!res.streaming && !res.committed) {
-        await this.executeTransformers(req, res);
+        // Middleware-produced responses are already final. Only route-handler
+        // responses proceed through the transformer chain.
+        if (!res.streaming && !res.committed) {
+          await this.executeTransformers(req, res);
+        }
       }
 
       // make sure the response is over.
       await res.commit();
-    } catch (err) {
-      await this.executeErrorHandlers(err as Error, req, res);
+    } catch (caught) {
+      const err = caught instanceof URIError
+        ? new HttpError(400, 'Bad Request')
+        : caught instanceof Error
+          ? caught
+          : new Error(String(caught));
+      await this.executeErrorHandlers(err, req, res);
     } finally {
       // Always execute finalizers
       await this.executeFinalizers(req, res);
@@ -473,6 +513,7 @@ export class Application<T extends FrameworkMeta> {
  * }
  * 
  * const app = createApp<AppMeta>({
+ *   application: { maxRequestSize: '2MiB' },
  *   requiresAuth: false,
  *   rateLimit: 100,
  * });
@@ -507,7 +548,7 @@ export class RouteContext<T extends FrameworkMeta> {
     }
   }
   route(
-    method: HttpMethod,
+    method: HttpMethod|HttpMethod[],
     ...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]
   ) {
     const paths: string[] = [];
@@ -531,7 +572,9 @@ export class RouteContext<T extends FrameworkMeta> {
     if (null === handler) {
       throw new Error('No handler provided for route');
     }
-    this.app.route(method, ...paths, ...metas, handler!);
+    for (const m of Array.isArray(method) ? method : [method]) {
+      this.app.route(m, ...paths, ...metas, handler!);
+    }
   }
 
   // HTTP method helpers

@@ -23,7 +23,9 @@ interface AuthorizationCode {
   scope: string[];
 }
 
-const app = createApp<OAuthMeta>({});
+const app = createApp<OAuthMeta>({
+  application: { maxRequestSize: '2MiB' },
+});
 const codes = new Map<string, AuthorizationCode>();
 const tokens = new Map<string, AccessToken>();
 const client = {
@@ -35,10 +37,9 @@ const client = {
 // Protect only routes that declare `requiredScope` in their endpoint metadata.
 // Public OAuth endpoints pass through; protected API routes receive the
 // validated token through request-local context.
-app.use(async (req, res, next) => {
+app.use(async (req, res) => {
   const requiredScope = req.endpointMeta.requiredScope;
   if (!requiredScope) {
-    await next();
     return;
   }
   const token = activeToken(req, tokens, requiredScope);
@@ -48,7 +49,6 @@ app.use(async (req, res, next) => {
     return;
   }
   req.context.accessToken = token;
-  await next();
 });
 
 // Authorization endpoint: validate the registered client and redirect URI,

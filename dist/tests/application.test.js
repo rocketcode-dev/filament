@@ -1,15 +1,25 @@
 import { suite } from 'node:test';
 import TestBattery from 'test-battery';
 import { createApp, Application, createRouteContext } from '../src/application.js';
+function createTestApp(meta) {
+    return createApp({
+        application: { maxRequestSize: '2MiB' },
+        ...meta,
+    });
+}
 suite('Application', () => {
     suite('create application', () => {
         TestBattery.test('should create an application instance', (battery) => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             battery.test('should create Application instance')
                 .value(app instanceof Application).is.true;
         });
         TestBattery.test('should use provided default meta', (battery) => {
-            const defaultMeta = { requiresAuth: true, roles: ['admin'] };
+            const defaultMeta = {
+                application: { maxRequestSize: '2MiB' },
+                requiresAuth: true,
+                roles: ['admin'],
+            };
             const app = createApp(defaultMeta);
             battery.test('should create app with custom meta')
                 .value(app instanceof Application).is.true;
@@ -17,7 +27,7 @@ suite('Application', () => {
     });
     suite('route registration', () => {
         TestBattery.test('should register GET route', (battery) => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             let called = false;
             app.get('/test', {}, async (req, res) => {
                 called = true;
@@ -27,7 +37,7 @@ suite('Application', () => {
                 .value(called).is.false;
         });
         TestBattery.test('should register POST route', (battery) => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             app.post('/users', {}, async (req, res) => {
                 res.json({ created: true });
             });
@@ -35,7 +45,7 @@ suite('Application', () => {
                 .value(true).is.true;
         });
         TestBattery.test('should register PUT route', (battery) => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             app.put('/users/:id', {}, async (req, res) => {
                 res.json({ updated: true });
             });
@@ -43,7 +53,7 @@ suite('Application', () => {
                 .value(true).is.true;
         });
         TestBattery.test('should register PATCH route', (battery) => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             app.patch('/users/:id', {}, async (req, res) => {
                 res.json({ patched: true });
             });
@@ -51,7 +61,7 @@ suite('Application', () => {
                 .value(true).is.true;
         });
         TestBattery.test('should register DELETE route', (battery) => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             app.delete('/users/:id', {}, async (req, res) => {
                 res.json({ deleted: true });
             });
@@ -59,7 +69,7 @@ suite('Application', () => {
                 .value(true).is.true;
         });
         TestBattery.test('should merge route meta with default meta', (battery) => {
-            const app = createApp({ requiresAuth: false, roles: ['user'] });
+            const app = createTestApp({ requiresAuth: false, roles: ['user'] });
             let capturedMeta;
             app.get('/test', { requiresAuth: true }, async (req, res) => {
                 capturedMeta = req.endpointMeta;
@@ -71,7 +81,7 @@ suite('Application', () => {
     });
     suite('route registration with a route context', () => {
         TestBattery.test('should register GET route', (battery) => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             const rc = createRouteContext(app, '/rc');
             let called = false;
             rc.get('/test', {}, async (req, res) => {
@@ -82,7 +92,7 @@ suite('Application', () => {
                 .value(called).is.false;
         });
         TestBattery.test('should register POST route', (battery) => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             const rc = createRouteContext(app, '/rc');
             rc.post('/users', {}, async (req, res) => {
                 res.json({ created: true });
@@ -91,7 +101,7 @@ suite('Application', () => {
                 .value(true).is.true;
         });
         TestBattery.test('should register PUT route', (battery) => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             const rc = createRouteContext(app, '/rc');
             rc.put('/users/:id', {}, async (req, res) => {
                 res.json({ updated: true });
@@ -100,7 +110,7 @@ suite('Application', () => {
                 .value(true).is.true;
         });
         TestBattery.test('should register PATCH route', (battery) => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             const rc = createRouteContext(app, '/rc');
             rc.patch('/users/:id', {}, async (req, res) => {
                 res.json({ patched: true });
@@ -109,7 +119,7 @@ suite('Application', () => {
                 .value(true).is.true;
         });
         TestBattery.test('should register DELETE route', (battery) => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             const rc = createRouteContext(app, '/rc');
             rc.delete('/users/:id', {}, async (req, res) => {
                 res.json({ deleted: true });
@@ -118,7 +128,7 @@ suite('Application', () => {
                 .value(true).is.true;
         });
         TestBattery.test('should merge route meta with default meta', (battery) => {
-            const app = createApp({ requiresAuth: false, roles: ['user'] });
+            const app = createTestApp({ requiresAuth: false, roles: ['user'] });
             const rc = createRouteContext(app, '/rc');
             let capturedMeta;
             rc.get('/test', { requiresAuth: true }, async (req, res) => {
@@ -131,52 +141,46 @@ suite('Application', () => {
     });
     suite('middleware registration', () => {
         TestBattery.test('should register global middleware', (battery) => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             let middlewareCalled = false;
-            app.use(async (req, res, next) => {
+            app.use(async () => {
                 middlewareCalled = true;
-                await next();
             });
             battery.test('middleware not called until request')
                 .value(middlewareCalled).is.false;
         });
         TestBattery.test('should register path-specific middleware', (battery) => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             let middlewareCalled = false;
-            app.use('/api', async (req, res, next) => {
+            app.use('/api', async () => {
                 middlewareCalled = true;
-                await next();
             });
             battery.test('middleware not called until request')
                 .value(middlewareCalled).is.false;
         });
         TestBattery.test('should register multiple middlewares', (battery) => {
-            const app = createApp({ requiresAuth: false });
-            app.use(async (req, res, next) => {
-                await next();
-            });
-            app.use(async (req, res, next) => {
-                await next();
-            });
+            const app = createTestApp({ requiresAuth: false });
+            app.use(async () => { });
+            app.use(async () => { });
             battery.test('multiple middlewares registered')
                 .value(true).is.true;
         });
     });
     suite('error handler registration', () => {
         TestBattery.test('should register error handler', (battery) => {
-            const app = createApp({ requiresAuth: false });
-            app.onError(async (err, req, res, next) => {
+            const app = createTestApp({ requiresAuth: false });
+            app.onError(async (err, req, res) => {
                 res.status(500).json({ error: err.message });
             });
             battery.test('error handler registered')
                 .value(true).is.true;
         });
         TestBattery.test('should register multiple error handlers', (battery) => {
-            const app = createApp({ requiresAuth: false });
-            app.onError(async (err, req, res, next) => {
+            const app = createTestApp({ requiresAuth: false });
+            app.onError(async () => {
                 // First handler
             });
-            app.onError(async (err, req, res, next) => {
+            app.onError(async () => {
                 // Second handler
             });
             battery.test('multiple error handlers registered')
@@ -185,7 +189,7 @@ suite('Application', () => {
     });
     suite('finalizer registration', () => {
         TestBattery.test('should register finalizer', (battery) => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             app.onFinalize(async (req, res) => {
                 // Logging logic
             });
@@ -193,7 +197,7 @@ suite('Application', () => {
                 .value(true).is.true;
         });
         TestBattery.test('should register multiple finalizers', (battery) => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             app.onFinalize(async (req, res) => {
                 // First finalizer
             });
@@ -206,7 +210,7 @@ suite('Application', () => {
     });
     suite('transformer registration', () => {
         TestBattery.test('should register response transformer', (battery) => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             app.onTransform(async (req, res) => {
                 // Transform response
             });
@@ -214,7 +218,7 @@ suite('Application', () => {
                 .value(true).is.true;
         });
         TestBattery.test('should register multiple transformers', (battery) => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             app.onTransform(async (req, res) => {
                 // First transformer
             });
@@ -227,7 +231,7 @@ suite('Application', () => {
     });
     suite('server lifecycle', () => {
         TestBattery.test('should start server on specified port', (battery) => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             const port = 9876;
             const listenPromise = app.listen(port).finally(() => {
                 app.close();
@@ -236,7 +240,7 @@ suite('Application', () => {
                 .value(listenPromise).value(port).equal;
         });
         TestBattery.test('should close server gracefully', (battery) => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             const port = 9877;
             const closePromise = app.listen(port).then(async () => {
                 await new Promise(resolve => setTimeout(resolve, 100));
@@ -246,7 +250,7 @@ suite('Application', () => {
                 .value(closePromise).value(undefined).equal;
         });
         TestBattery.test('should handle close when server not started', (battery) => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             const closePromise = app.close();
             battery.test('close handled when server not started')
                 .value(closePromise).value(undefined).equal;
@@ -254,7 +258,7 @@ suite('Application', () => {
     });
     suite('request handling', () => {
         TestBattery.test('should handle basic GET request', (battery) => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             let handlerCalled = false;
             let responseData;
             app.get('/test', {}, async (req, res) => {
@@ -273,7 +277,7 @@ suite('Application', () => {
                 .value(requestPromise).value({ handlerCalled: true, data: { message: 'success' } }).deepEqual;
         });
         TestBattery.test('should handle route with parameters', (battery) => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             let capturedId;
             app.get('/users/:id', {}, async (req, res) => {
                 capturedId = req.params.id;
@@ -290,7 +294,7 @@ suite('Application', () => {
                 .value(responsePromise).value({ response: { id: '123' }, capturedId: '123' }).deepEqual;
         });
         TestBattery.test('should handle POST request with body', (battery) => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             let capturedBody;
             app.post('/users', {}, async (req, res) => {
                 capturedBody = JSON.parse(req.body?.toString() || '{}');
@@ -315,15 +319,13 @@ suite('Application', () => {
             }).deepEqual;
         });
         TestBattery.test('should execute middleware chain', (battery) => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             const order = [];
-            app.use(async (req, res, next) => {
+            app.use(async () => {
                 order.push('middleware1');
-                await next();
             });
-            app.use(async (req, res, next) => {
+            app.use(async () => {
                 order.push('middleware2');
-                await next();
             });
             app.get('/test', {}, async (req, res) => {
                 order.push('handler');
@@ -339,8 +341,43 @@ suite('Application', () => {
                 .value(chainPromise)
                 .value(['middleware1', 'middleware2', 'handler']).deepEqual;
         });
+        TestBattery.test('should treat a middleware response as terminal', (battery) => {
+            const app = createTestApp({ requiresAuth: false });
+            const order = [];
+            app.use(async (_req, res) => {
+                order.push('terminal middleware');
+                await res.status(401).json({ error: 'Unauthorized' });
+            });
+            app.use(async () => {
+                order.push('later middleware');
+            });
+            app.onTransform(async () => {
+                order.push('transformer');
+            });
+            app.onFinalize(async () => {
+                order.push('finalizer');
+            });
+            app.get('/protected', async (_req, res) => {
+                order.push('handler');
+                await res.json({ success: true });
+            });
+            const responsePromise = app.listen(9897).then(async (port) => {
+                const response = await fetch(`http://localhost:${port}/protected`);
+                const body = await response.json();
+                await app.close();
+                return { status: response.status, body, order };
+            });
+            battery.test('should skip downstream work but run finalizers')
+                .value(responsePromise)
+                .value({
+                status: 401,
+                body: { error: 'Unauthorized' },
+                order: ['terminal middleware', 'finalizer'],
+            })
+                .deepEqual;
+        });
         TestBattery.test('should handle 404 for non-existent routes', (battery) => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             app.get('/exists', {}, async (req, res) => {
                 res.json({ found: true });
             });
@@ -354,14 +391,91 @@ suite('Application', () => {
             battery.test('should return 404 not found')
                 .value(notFoundPromise).value({ status: 404, data: { error: 'Not Found' } }).deepEqual;
         });
+        TestBattery.test('should send route misses through error flow', battery => {
+            const app = createTestApp({ requiresAuth: false });
+            let errorStatus;
+            let finalizerPath;
+            app.onError(async (err) => {
+                errorStatus = 'statusCode' in err
+                    ? err.statusCode
+                    : undefined;
+            });
+            app.onFinalize(async (req) => {
+                finalizerPath = req.path;
+            });
+            const resultPromise = app.listen(9895).then(async (port) => {
+                const response = await fetch(`http://localhost:${port}/missing`);
+                const body = await response.json();
+                await app.close();
+                return {
+                    status: response.status,
+                    body,
+                    errorStatus,
+                    finalizerPath,
+                };
+            });
+            battery.test('should run error handlers, the default, and finalizers')
+                .value(resultPromise)
+                .value({
+                status: 404,
+                body: { error: 'Not Found' },
+                errorStatus: 404,
+                finalizerPath: '/missing',
+            })
+                .deepEqual;
+        });
+        TestBattery.test('should reject request bodies over the limit', battery => {
+            const app = createApp({
+                application: { maxRequestSize: '4B' },
+                requiresAuth: false,
+            });
+            let handlerCalled = false;
+            app.post('/limited', async (req, res) => {
+                handlerCalled = true;
+                await res.send(req.body ?? Buffer.alloc(0));
+            });
+            const resultPromise = app.listen(9894).then(async (port) => {
+                const response = await fetch(`http://localhost:${port}/limited`, {
+                    method: 'POST',
+                    body: '12345',
+                });
+                const body = await response.json();
+                await app.close();
+                return { status: response.status, body, handlerCalled };
+            });
+            battery.test('should enter error flow with 413')
+                .value(resultPromise)
+                .value({
+                status: 413,
+                body: { error: 'Payload Too Large' },
+                handlerCalled: false,
+            })
+                .deepEqual;
+        });
+        TestBattery.test('should reject malformed encoded parameters', battery => {
+            const app = createTestApp({ requiresAuth: false });
+            app.get('/users/:id', async (req, res) => {
+                await res.json({ id: req.params.id });
+            });
+            const resultPromise = app.listen(9896).then(async (port) => {
+                const response = await fetch(`http://localhost:${port}/users/%E0%A4%A`);
+                const body = await response.json();
+                await app.close();
+                return { status: response.status, body };
+            });
+            battery.test('should enter error flow with 400')
+                .value(resultPromise)
+                .value({ status: 400, body: { error: 'Bad Request' } })
+                .deepEqual;
+        });
         TestBattery.test('should call error handlers on exceptions', (battery) => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             let errorHandlerCalled = false;
             let capturedError;
             app.get('/error', {}, async (req, res) => {
                 throw new Error('Test error');
             });
-            app.onError(async (err, req, res, next) => {
+            app.onError(async (err, _req, res) => {
                 errorHandlerCalled = true;
                 capturedError = err;
                 res.status(500).json({ error: err.message });
@@ -386,8 +500,37 @@ suite('Application', () => {
                 data: { error: 'Test error' }
             }).deepEqual;
         });
+        TestBattery.test('should advance through open error handlers', battery => {
+            const app = createTestApp({ requiresAuth: false });
+            const errors = [];
+            app.get('/error-chain', async () => {
+                throw new Error('original');
+            });
+            app.onError(async (err) => {
+                errors.push(err.message);
+                throw new Error('replacement');
+            });
+            app.onError(async (err, _req, res) => {
+                errors.push(err.message);
+                await res.status(422).json({ error: err.message });
+            });
+            const responsePromise = app.listen(9898).then(async (port) => {
+                const response = await fetch(`http://localhost:${port}/error-chain`);
+                const body = await response.json();
+                await app.close();
+                return { status: response.status, body, errors };
+            });
+            battery.test('should carry thrown replacements to the next handler')
+                .value(responsePromise)
+                .value({
+                status: 422,
+                body: { error: 'replacement' },
+                errors: ['original', 'replacement'],
+            })
+                .deepEqual;
+        });
         TestBattery.test('should implicitly end a handler response', (battery) => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             app.get('/implicit-end', {}, async (req, res) => {
                 res.body = 'implicitly closed';
             });
@@ -402,7 +545,7 @@ suite('Application', () => {
                 .value({ status: 200, body: 'implicitly closed' }).deepEqual;
         });
         TestBattery.test('should use the default error handler', (battery) => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             app.get('/default-error', {}, async () => {
                 throw new Error('private details');
             });
@@ -420,7 +563,7 @@ suite('Application', () => {
             }).deepEqual;
         });
         TestBattery.test('should replace an uncommitted response after transformer failure', battery => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             app.onTransform(async () => {
                 throw new Error('Transform failed');
             });
@@ -441,7 +584,7 @@ suite('Application', () => {
             }).deepEqual;
         });
         TestBattery.test('should transform HTTP errors but not exception responses', battery => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             let transformations = 0;
             app.onTransform(async (req, res) => {
                 transformations++;
@@ -485,7 +628,7 @@ suite('Application', () => {
             }).deepEqual;
         });
         TestBattery.test('should call finalizers after response', (battery) => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             let finalizerCalled = false;
             let capturedPath;
             app.get('/test', {}, async (req, res) => {
@@ -510,7 +653,7 @@ suite('Application', () => {
     });
     suite('request handling with route contexts', () => {
         TestBattery.test('should handle basic GET request', (battery) => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             const rc = createRouteContext(app, '/rc');
             let handlerCalled = false;
             let responseData;
@@ -530,7 +673,7 @@ suite('Application', () => {
                 .value(requestPromise).value({ handlerCalled: true, data: { message: 'success' } }).deepEqual;
         });
         TestBattery.test('should handle route with parameters', (battery) => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             const rc = createRouteContext(app, '/rc');
             let capturedId;
             rc.get('/users/:id', {}, async (req, res) => {
@@ -548,7 +691,7 @@ suite('Application', () => {
                 .value(responsePromise).value({ response: { id: '123' }, capturedId: '123' }).deepEqual;
         });
         TestBattery.test('should handle POST request with body', (battery) => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             const rc = createRouteContext(app, '/rc');
             let capturedBody;
             rc.post('/users', {}, async (req, res) => {
@@ -574,16 +717,14 @@ suite('Application', () => {
             }).deepEqual;
         });
         TestBattery.test('should execute middleware chain', (battery) => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             const rc = createRouteContext(app, '/rc');
             const order = [];
-            app.use(async (req, res, next) => {
+            app.use(async () => {
                 order.push('middleware1');
-                await next();
             });
-            app.use(async (req, res, next) => {
+            app.use(async () => {
                 order.push('middleware2');
-                await next();
             });
             rc.get('/test', {}, async (req, res) => {
                 order.push('handler');
@@ -600,7 +741,7 @@ suite('Application', () => {
                 .value(['middleware1', 'middleware2', 'handler']).deepEqual;
         });
         TestBattery.test('should handle 404 for non-existent routes', (battery) => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             const rc = createRouteContext(app, '/rc');
             rc.get('/exists', {}, async (req, res) => {
                 res.json({ found: true });
@@ -616,7 +757,7 @@ suite('Application', () => {
                 .value(notFoundPromise).value({ status: 404, data: { error: 'Not Found' } }).deepEqual;
         });
         TestBattery.test('should handle 404 for non-basepath routes', (battery) => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             const rc = createRouteContext(app, '/rc');
             rc.get('/exists', {}, async (req, res) => {
                 res.json({ found: true });
@@ -632,14 +773,14 @@ suite('Application', () => {
                 .value(notFoundPromise).value({ status: 404, data: { error: 'Not Found' } }).deepEqual;
         });
         TestBattery.test('should call error handlers on exceptions', (battery) => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             const rc = createRouteContext(app, '/rc');
             let errorHandlerCalled = false;
             let capturedError;
             rc.get('/error', {}, async (req, res) => {
                 throw new Error('Test error');
             });
-            app.onError(async (err, req, res, next) => {
+            app.onError(async (err, _req, res) => {
                 errorHandlerCalled = true;
                 capturedError = err;
                 res.status(500).json({ error: err.message });
@@ -665,7 +806,7 @@ suite('Application', () => {
             }).deepEqual;
         });
         TestBattery.test('should call finalizers after response', (battery) => {
-            const app = createApp({ requiresAuth: false });
+            const app = createTestApp({ requiresAuth: false });
             const rc = createRouteContext(app, '/rc');
             let finalizerCalled = false;
             let capturedPath;
@@ -691,7 +832,7 @@ suite('Application', () => {
     });
     suite('meta handling', () => {
         TestBattery.test('should provide endpoint meta to handlers', (battery) => {
-            const app = createApp({ requiresAuth: false, roles: [] });
+            const app = createTestApp({ requiresAuth: false, roles: [] });
             let capturedMeta;
             app.get('/admin', { requiresAuth: true, roles: ['admin'] }, async (req, res) => {
                 capturedMeta = req.endpointMeta;
@@ -704,10 +845,14 @@ suite('Application', () => {
                 return capturedMeta;
             });
             battery.test('should have correct endpoint meta')
-                .value(metaPromise).value({ requiresAuth: true, roles: ['admin'] }).deepEqual;
+                .value(metaPromise).value({
+                application: { maxRequestSize: 2097152 },
+                requiresAuth: true,
+                roles: ['admin'],
+            }).deepEqual;
         });
         TestBattery.test('should merge partial meta with defaults', (battery) => {
-            const app = createApp({ requiresAuth: false, roles: ['user'] });
+            const app = createTestApp({ requiresAuth: false, roles: ['user'] });
             let capturedMeta;
             app.get('/test', { requiresAuth: true }, async (req, res) => {
                 capturedMeta = req.endpointMeta;
@@ -721,7 +866,39 @@ suite('Application', () => {
             });
             battery.test('should override requiresAuth and keep defaults')
                 .value(mergePromise)
-                .value({ requiresAuth: true, roles: ['user'] })
+                .value({
+                application: { maxRequestSize: 2097152 },
+                requiresAuth: true,
+                roles: ['user'],
+            })
+                .deepEqual;
+        });
+        TestBattery.test('should clone and deeply freeze route metadata', battery => {
+            const roles = ['user'];
+            const app = createTestApp({ requiresAuth: false, roles });
+            app.get('/frozen', async (req, res) => {
+                await res.json({
+                    roles: req.endpointMeta.roles,
+                    rootFrozen: Object.isFrozen(req.endpointMeta),
+                    rolesFrozen: Object.isFrozen(req.endpointMeta.roles),
+                    applicationFrozen: Object.isFrozen(req.endpointMeta.application),
+                });
+            });
+            roles.push('mutated-after-registration');
+            const resultPromise = app.listen(9887).then(async (port) => {
+                const response = await fetch(`http://localhost:${port}/frozen`);
+                const body = await response.json();
+                await app.close();
+                return body;
+            });
+            battery.test('should expose an isolated frozen metadata snapshot')
+                .value(resultPromise)
+                .value({
+                roles: ['user'],
+                rootFrozen: true,
+                rolesFrozen: true,
+                applicationFrozen: true,
+            })
                 .deepEqual;
         });
     });

@@ -15,7 +15,9 @@ function deferred() {
     };
 }
 export async function oneTimeServer(method, body, path = '/') {
-    const app = createApp({});
+    const app = createApp({
+        application: { maxRequestSize: '2MiB' },
+    });
     const responseDeferred = deferred();
     const finishedDeferred = deferred();
     let finished = false;

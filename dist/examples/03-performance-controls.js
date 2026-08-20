@@ -5,6 +5,7 @@ const { port: portOption, silent = false } = parseArgs({
 }).values;
 const port = Number(portOption ?? 0);
 const app = createApp({
+    application: { maxRequestSize: '2MiB' },
     rateLimit: {
         requests: 60,
         window: 60,
@@ -21,7 +22,7 @@ const rateLimitStore = new Map();
 // Simple in-memory cache
 const cacheStore = new Map();
 // Rate limiting middleware
-app.use(async (req, res, next) => {
+app.use(async (req, res) => {
     const { requests, window, strategy } = req.endpointMeta.rateLimit;
     // Use IP or a header as identifier (simplified)
     const identifier = req.headers.get('x-client-id') || 'anonymous';
@@ -51,15 +52,13 @@ app.use(async (req, res, next) => {
         });
         return;
     }
-    await next();
 });
 function getCacheKey(req) {
     return req.endpointMeta.cache.key || `${req.method}:${req.path}`;
 }
 // Cache middleware (check before handler)
-app.use(async (req, res, next) => {
+app.use(async (req, res) => {
     if (!req.endpointMeta.cache.enabled) {
-        await next();
         return;
     }
     const cacheKey = getCacheKey(req);
@@ -70,10 +69,9 @@ app.use(async (req, res, next) => {
         return;
     }
     res.headers.set('X-Cache', 'MISS');
-    await next();
 });
 // Priority queue middleware
-app.use(async (req, res, next) => {
+app.use(async (req, res) => {
     const priority = req.endpointMeta.priority;
     // Add priority header
     res.headers.set('X-Request-Priority', priority);
@@ -82,12 +80,10 @@ app.use(async (req, res, next) => {
         // Simulate slight delay for low priority
         await new Promise(resolve => setTimeout(resolve, 100));
     }
-    await next();
 });
 // Cature body for caching
-app.use(async (req, res, next) => {
+app.use(async (_req, res) => {
     res.streaming = false;
-    await next();
 });
 // Endpoints with different performance characteristics
 // High-frequency, cacheable endpoint

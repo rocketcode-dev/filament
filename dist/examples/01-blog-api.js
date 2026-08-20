@@ -1,10 +1,11 @@
-import { createApp } from '../src/index.js';
+import { createApp, HttpError } from '../src/index.js';
 import { parseArgs } from 'node:util';
 const { port: portOption, silent = false } = parseArgs({
     options: { port: { type: 'string' }, silent: { type: 'boolean' } },
 }).values;
 const port = Number(portOption ?? 0);
 const app = createApp({
+    application: { maxRequestSize: '2MiB' },
     requiresAuth: false,
     rateLimit: 100,
 });
@@ -20,7 +21,7 @@ const posts = new Map([
     [2, { id: 2, title: 'Advanced Metadata Patterns', content: 'Deep dive...', authorId: 2 }],
 ]);
 // Authentication middleware
-app.use(async (req, res, next) => {
+app.use(async (req, res) => {
     if (req.endpointMeta.requiresAuth) {
         let token = req.headers.get('authorization');
         if (Array.isArray(token)) {
@@ -38,10 +39,9 @@ app.use(async (req, res, next) => {
         // Attach user to request (in real app, extend Request type)
         req.user = user;
     }
-    await next();
 });
 // Role-based authorization middleware
-app.use(async (req, res, next) => {
+app.use(async (req, res) => {
     const requiredRole = req.endpointMeta.role;
     if (requiredRole) {
         const user = req.user;
@@ -55,7 +55,6 @@ app.use(async (req, res, next) => {
             return;
         }
     }
-    await next();
 });
 // Public endpoints
 app.get('/posts', {}, async (req, res) => {
@@ -113,6 +112,9 @@ app.delete('/posts/:id', { requiresAuth: true, role: 'admin' }, async (req, res)
 });
 // Error handling
 app.onError(async (err, req, res) => {
+    if (err instanceof HttpError) {
+        return;
+    }
     console.error('Error:', err);
     res.status(500).json({ error: 'Internal server error' });
 });

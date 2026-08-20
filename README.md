@@ -36,7 +36,9 @@ You define a complete default metadata object when creating your app. Individual
 
 ### 3. Single Middleware Chain
 
-Middleware runs in registration order. Each middleware inspects `req.endpointMeta` to decide what to do.
+Middleware runs in registration order. Each middleware inspects
+`req.endpointMeta` to decide what to do. Returning advances automatically;
+sending or ending a response makes that middleware terminal.
 
 ### 4. Post-Request Processing
 
@@ -61,6 +63,7 @@ interface AppMeta extends FrameworkMeta {
 
 // Create default metadata
 const defaultMeta: AppMeta = {
+  application: { maxRequestSize: '2MiB' },
   requiresAuth: false,
   rateLimit: 100,
   logLevel: 'info',
@@ -71,7 +74,7 @@ const defaultMeta: AppMeta = {
 const app = createApp<AppMeta>(defaultMeta);
 
 // Add middleware that inspects metadata
-app.use(async (req, res, next) => {
+app.use(async (req, res) => {
   if (req.endpointMeta.requiresAuth) {
     const token = req.headers.authorization;
     if (!token) {
@@ -80,7 +83,6 @@ app.use(async (req, res, next) => {
     }
     // validate token...
   }
-  await next();
 });
 
 // Define endpoints with custom metadata
@@ -154,7 +156,7 @@ interface Request<T extends FrameworkMeta> {
   params: Record<string, string>;        // Path parameters
   query: Record<string, string | string[]>;  // Query parameters
   headers: Record<string, string | string[] | undefined>;
-  body?: unknown;                        // Parsed JSON body
+  body?: Buffer;                         // Buffered request body
   endpointMeta: Readonly<T>;            // Endpoint metadata (read-only)
 }
 ```
@@ -180,8 +182,8 @@ interface Response {
    ↓
 3. Middleware Chain (in registration order)
    - Each middleware inspects req.endpointMeta
-   - Decides whether to execute logic
-   - await next() continues chain
+   - Returning with an open response continues automatically
+   - Closing the response stops later middleware, the route handler, and transforms
    ↓
 4. Route Handler executes
    ↓
@@ -210,14 +212,25 @@ app.get('/posts/:postId/comments/:commentId', {}, async (req, res) => {
 });
 ```
 
+Static path text is matched literally, and parameter values are percent-decoded.
+
+## Request Size Limit
+
+`application.maxRequestSize` limits buffered POST, PUT, and PATCH request
+bodies. It accepts a byte count or a case-insensitive byte-size string. Familiar
+forms use binary multiples, so `2Mi`, `2MiB`, `2Mb`, and `2 MB` all normalize to
+2097152 bytes. Oversized requests enter the error flow as `HttpError` responses
+with status 413.
+
 ## Metadata Merging
 
-- Endpoint metadata is merged with defaults using shallow merge
+- Endpoint metadata is deeply cloned and merged with defaults
 - Arrays **always replace** (not concatenate)
-- Metadata is immutable at runtime
+- Default and endpoint metadata are deeply frozen at runtime
 
 ```typescript
 const defaultMeta = {
+  application: { maxRequestSize: '2MiB' },
   requiresAuth: false,
   tags: ['default'],
 };
@@ -239,6 +252,13 @@ app.onError(async (err, req, res) => {
   res.status(500).json({ error: err.message });
 });
 ```
+
+Routing failures use the same flow. Filament raises exported `HttpError`
+instances for framework-detected failures such as malformed encoded parameters
+(400), unmatched routes (404), and oversized request bodies (413). If a custom
+error handler leaves the response open, Filament automatically tries the next
+handler and eventually its default JSON response. Closing the response marks the
+error as handled.
 
 ## Complete Example
 

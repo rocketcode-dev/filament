@@ -31,6 +31,7 @@ interface ObservabilityMeta extends FrameworkMeta {
 }
 
 const app = createApp<ObservabilityMeta>({
+  application: { maxRequestSize: '2MiB' },
   trace: {
     enabled: true,
     sampleRate: 1.0,
@@ -70,11 +71,10 @@ function generateId(): string {
 }
 
 // Tracing middleware
-app.use(async (req, res, next) => {
+app.use(async (req, res) => {
   const { enabled, sampleRate, includeHeaders, includeBody } = req.endpointMeta.trace;
   
   if (!enabled || Math.random() > sampleRate) {
-    await next();
     return;
   }
   
@@ -109,40 +109,18 @@ app.use(async (req, res, next) => {
   // Store trace
   (req as any).trace = trace;
   
-  await next();
 });
 
 // Metrics middleware
-app.use(async (req, res, next) => {
+app.use(async (req) => {
   if (!req.endpointMeta.metrics.enabled) {
-    await next();
     return;
   }
-  
-  const startTime = Date.now();
-  
-  await next();
-  
-  const duration = Date.now() - startTime;
-  const dimensions = req.endpointMeta.metrics.dimensions;
-  
-  // Record metrics based on dimensions
-  const metricKey = dimensions
-    .map(dim => {
-      if (dim === 'endpoint') return req.path;
-      if (dim === 'status') return res.statusCode.toString();
-      if (dim === 'method') return req.method;
-      if (dim === 'service') return req.endpointMeta.service;
-      return dim;
-    })
-    .join(':');
-  
-  metrics.set(`${metricKey}:count`, (metrics.get(`${metricKey}:count`) || 0) + 1);
-  metrics.set(`${metricKey}:duration`, (metrics.get(`${metricKey}:duration`) || 0) + duration);
+  req.context.metricsStartTime = Date.now();
 });
 
 // Structured logging middleware
-app.use(async (req, res, next) => {
+app.use(async (req) => {
   const { level, structured, sensitiveFields } = req.endpointMeta.logging;
   
   if (level === 'debug' || level === 'info') {
@@ -163,7 +141,6 @@ app.use(async (req, res, next) => {
       console.log(structured ? JSON.stringify(logEntry) : logEntry);
   }
   
-  await next();
 });
 
 // Service endpoints
@@ -277,6 +254,26 @@ app.get('/traces',
 
 // Finalize traces
 app.onFinalize(async (req, res) => {
+  const metricsStartTime = req.context.metricsStartTime as number | undefined;
+  if (metricsStartTime !== undefined) {
+    const duration = Date.now() - metricsStartTime;
+    const dimensions = req.endpointMeta.metrics.dimensions;
+    const metricKey = dimensions
+      .map(dim => {
+        if (dim === 'endpoint') return req.path;
+        if (dim === 'status') return res.statusCode.toString();
+        if (dim === 'method') return req.method;
+        if (dim === 'service') return req.endpointMeta.service;
+        return dim;
+      })
+      .join(':');
+
+    metrics.set(`${metricKey}:count`,
+      (metrics.get(`${metricKey}:count`) || 0) + 1);
+    metrics.set(`${metricKey}:duration`,
+      (metrics.get(`${metricKey}:duration`) || 0) + duration);
+  }
+
   const trace = (req as any).trace as Trace | undefined;
   
   if (trace) {

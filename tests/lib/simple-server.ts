@@ -42,7 +42,9 @@ export async function oneTimeServer(
   body: string | Buffer | (string | Buffer)[] | object | null,
   path: string = '/',
 ): Promise<OneTimeServer> {
-  const app = createApp<FrameworkMeta>({});
+  const app = createApp<FrameworkMeta>({
+    application: { maxRequestSize: '2MiB' },
+  });
 
   const responseDeferred = deferred<Response>();
   const finishedDeferred = deferred<void>();

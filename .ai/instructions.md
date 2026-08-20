@@ -2,8 +2,11 @@
 
 ## Architecture-specific patterns
 
-- **Meta merging**: Shallow merge with defaults - **arrays replace, not merge**
+- **Meta merging**: Deep clone and merge with defaults - **arrays replace, not merge**
 - **Response flow order**: Middleware → Handler → Transformers → Finalizers
+  - Middleware advances automatically while the response remains open
+  - A closed middleware response skips later middleware, handlers, and
+    transforms
   - Transformers only run on success
   - Finalizers always run (even on errors)
 - **Type pattern**: All classes use `<T extends FrameworkMeta>` generic

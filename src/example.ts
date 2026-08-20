@@ -1,4 +1,4 @@
-import { createApp, FrameworkMeta } from './index.js';
+import { createApp, FrameworkMeta, HttpError } from './index.js';
 
 /**
  * Example application demonstrating Filament usage
@@ -14,6 +14,7 @@ interface AppMeta extends FrameworkMeta {
 
 // Create default metadata (must fully implement AppMeta)
 const defaultMeta: AppMeta = {
+  application: { maxRequestSize: '2MiB' },
   requiresAuth: false,
   rateLimit: 100,
   logLevel: 'info',
@@ -24,7 +25,7 @@ const defaultMeta: AppMeta = {
 const app = createApp<AppMeta>(defaultMeta);
 
 // Authentication middleware - inspects endpointMeta
-app.use(async (req, res, next) => {
+app.use(async (req, res) => {
   if (req.endpointMeta.requiresAuth) {
     const token = req.headers.get('authorization');
     
@@ -37,28 +38,25 @@ app.use(async (req, res, next) => {
     console.log(`[Auth] Validating token for ${req.path}`);
   }
   
-  await next();
 });
 
 // Rate limiting middleware - uses rateLimit from meta
-app.use(async (req, res, next) => {
+app.use(async (req) => {
   const limit = req.endpointMeta.rateLimit;
   console.log(`[RateLimit] Endpoint ${req.path} has limit: ${limit} req/min`);
   
   // In real app, implement actual rate limiting here
   
-  await next();
 });
 
 // Logging middleware - uses logLevel from meta
-app.use(async (req, res, next) => {
+app.use(async (req) => {
   const level = req.endpointMeta.logLevel;
   
   if (level === 'debug' || level === 'info') {
     console.log(`[${level.toUpperCase()}] ${req.method} ${req.path}`);
   }
   
-  await next();
 });
 
 // Public endpoint - uses default meta
@@ -119,6 +117,9 @@ app.onTransform(async (req, res) => {
 
 // Error handler
 app.onError(async (err, req, res) => {
+  if (err instanceof HttpError) {
+    return;
+  }
   const level = req.endpointMeta.logLevel;
   
   if (level === 'debug' || level === 'error') {

@@ -16,7 +16,9 @@ const port = Number(values.port ?? 0);
 const silent = values.silent ?? false;
 
 interface OAuthMeta extends FrameworkMeta { requiredScope?: string }
-const app = createApp<OAuthMeta>({});
+const app = createApp<OAuthMeta>({
+  application: { maxRequestSize: '2MiB' },
+});
 const tokens = new Map<string, AccessToken>();
 const clients = new Map([
   ['analysis-worker', { secret: 'analysis-secret', scopes: ['text:analyze'] }],
@@ -24,10 +26,9 @@ const clients = new Map([
 
 // Metadata-driven bearer middleware ensures that only tokens containing the
 // endpoint's required scope reach the protected handler.
-app.use(async (req, res, next) => {
+app.use(async (req, res) => {
   const requiredScope = req.endpointMeta.requiredScope;
   if (!requiredScope) {
-    await next();
     return;
   }
   const token = activeToken(req, tokens, requiredScope);
@@ -37,7 +38,6 @@ app.use(async (req, res, next) => {
     return;
   }
   req.context.accessToken = token;
-  await next();
 });
 
 // Token endpoint: authenticate the service with HTTP Basic, restrict requested
