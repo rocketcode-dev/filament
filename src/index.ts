@@ -23,3 +23,4 @@ export type {
 export { Response } from './response.js';
 export { Headers } from './headers.js';
 export { HttpError } from './errors.js';
+export { contextGet } from './tools.js';

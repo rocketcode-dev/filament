@@ -1,6 +1,41 @@
 function isObject(value) {
     return value !== null && typeof value === 'object';
 }
+function getOwnPath(root, segments) {
+    let value = root;
+    for (const segment of segments) {
+        if (!isObject(value) ||
+            !Object.prototype.hasOwnProperty.call(value, segment)) {
+            return { found: false };
+        }
+        value = value[segment];
+    }
+    return { found: true, value };
+}
+/**
+ * Read request policy state using the mutable request context as an overlay on
+ * the immutable endpoint metadata.
+ *
+ * The complete dotted path is resolved against `req.context` first. If that
+ * path is not present there, it is resolved against `req.endpointMeta`.
+ * Existing context values such as `undefined`, `null`, or `false` take
+ * precedence over endpoint metadata. Only own properties are traversed.
+ *
+ * @example
+ * ```typescript
+ * const enabled = contextGet(req, 'trace.enabled');
+ * ```
+ */
+export function contextGet(req, path) {
+    const segments = path.split('.');
+    if (!path || segments.some(segment => !segment)) {
+        throw new TypeError('Context path must contain non-empty dot-separated keys');
+    }
+    const contextResult = getOwnPath(req.context, segments);
+    if (contextResult.found)
+        return contextResult.value;
+    return getOwnPath(req.endpointMeta, segments).value;
+}
 function isPlainObject(value) {
     if (!isObject(value))
         return false;

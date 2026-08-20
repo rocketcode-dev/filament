@@ -1,6 +1,61 @@
 
+import type {
+  ContextMeta,
+  FrameworkMeta,
+  Request,
+} from './types.js';
+
 function isObject(value: unknown): value is Record<PropertyKey, unknown> {
   return value !== null && typeof value === 'object';
+}
+
+interface PathResult {
+  found: boolean;
+  value?: unknown;
+}
+
+function getOwnPath(root: unknown, segments: readonly string[]): PathResult {
+  let value = root;
+  for (const segment of segments) {
+    if (!isObject(value) ||
+      !Object.prototype.hasOwnProperty.call(value, segment)) {
+      return { found: false };
+    }
+    value = value[segment];
+  }
+  return { found: true, value };
+}
+
+/**
+ * Read request policy state using the mutable request context as an overlay on
+ * the immutable endpoint metadata.
+ *
+ * The complete dotted path is resolved against `req.context` first. If that
+ * path is not present there, it is resolved against `req.endpointMeta`.
+ * Existing context values such as `undefined`, `null`, or `false` take
+ * precedence over endpoint metadata. Only own properties are traversed.
+ *
+ * @example
+ * ```typescript
+ * const enabled = contextGet(req, 'trace.enabled');
+ * ```
+ */
+export function contextGet<
+  T extends FrameworkMeta,
+  C extends ContextMeta,
+>(
+  req: Pick<Request<T, C>, 'context' | 'endpointMeta'>,
+  path: string,
+): unknown {
+  const segments = path.split('.');
+  if (!path || segments.some(segment => !segment)) {
+    throw new TypeError('Context path must contain non-empty dot-separated keys');
+  }
+
+  const contextResult = getOwnPath(req.context, segments);
+  if (contextResult.found) return contextResult.value;
+
+  return getOwnPath(req.endpointMeta, segments).value;
 }
 
 function isPlainObject(

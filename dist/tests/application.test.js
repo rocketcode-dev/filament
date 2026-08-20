@@ -615,6 +615,39 @@ suite('Application', () => {
             })
                 .deepEqual;
         });
+        TestBattery.test('should advance a buffered replacement error until commit', battery => {
+            const app = createTestApp({ requiresAuth: false });
+            const errors = [];
+            // A transformer makes the default response mode buffered.
+            app.onTransform(async () => { });
+            app.get('/buffered-error-chain', async () => {
+                throw new Error('original');
+            });
+            app.onError(async (error, _req, res) => {
+                errors.push(error.message);
+                await res.status(409).json({ error: 'first response' });
+                throw 'replacement';
+            });
+            app.onError(async (error, _req, res) => {
+                errors.push(error.message);
+                res.status(422);
+                res.body = JSON.stringify({ error: error.message });
+            });
+            const responsePromise = app.listen(0).then(async (port) => {
+                const response = await fetch(`http://localhost:${port}/buffered-error-chain`);
+                const body = await response.json();
+                await app.close();
+                return { status: response.status, body, errors };
+            });
+            battery.test('the replacement should supersede the closed buffer')
+                .value(responsePromise)
+                .value({
+                status: 422,
+                body: { error: 'replacement' },
+                errors: ['original', 'replacement'],
+            })
+                .deepEqual;
+        });
         TestBattery.test('should normalize primitive route errors', battery => {
             const app = createTestApp({ requiresAuth: false });
             let capturedError;
@@ -799,20 +832,65 @@ suite('Application', () => {
         });
         TestBattery.test('should finish a stream when its handler later throws', battery => {
             const app = createTestApp({ requiresAuth: false });
+            const originalConsoleError = console.error;
+            let logged = '';
             app.get('/partial-stream', async (_req, res) => {
                 res.streaming = true;
                 await res.sendChunk('partial');
                 throw new Error('too late to replace the response');
             });
-            const responsePromise = app.listen(0).then(async (port) => {
-                const response = await fetch(`http://localhost:${port}/partial-stream`);
-                const result = { status: response.status, body: await response.text() };
-                await app.close();
-                return result;
-            });
-            battery.test('escaped headers and bytes remain intact')
+            const responsePromise = (async () => {
+                console.error = (...values) => {
+                    logged = values.map(String).join(' ');
+                };
+                try {
+                    const port = await app.listen(0);
+                    const response = await fetch(`http://localhost:${port}/partial-stream`);
+                    return {
+                        status: response.status,
+                        body: await response.text(),
+                        logged,
+                    };
+                }
+                finally {
+                    await app.close();
+                    console.error = originalConsoleError;
+                }
+            })();
+            battery.test('escaped bytes remain intact and the error is logged')
                 .value(responsePromise)
-                .value({ status: 200, body: 'partial' }).deepEqual;
+                .value({
+                status: 200,
+                body: 'partial',
+                logged: 'Error after response started: Error: ' +
+                    'too late to replace the response',
+            }).deepEqual;
+        });
+        TestBattery.test('should commit an error response before finalizers', battery => {
+            const app = createTestApp({ requiresAuth: false });
+            let committedInFinalizer = false;
+            // A transformer makes error responses buffered, though errors bypass
+            // the transformer chain itself.
+            app.onTransform(async () => { });
+            app.get('/buffered-error-finalizer', async () => {
+                throw new Error('failure');
+            });
+            app.onError(async (_error, _req, res) => {
+                await res.status(500).json({ error: 'handled' });
+            });
+            app.onFinalize(async (_req, res) => {
+                committedInFinalizer = res.committed;
+            });
+            const responsePromise = app.listen(0).then(async (port) => {
+                const response = await fetch(`http://localhost:${port}/buffered-error-finalizer`);
+                const body = await response.json();
+                await app.close();
+                return { body, committedInFinalizer };
+            });
+            battery.test('finalizers should observe the committed response')
+                .value(responsePromise)
+                .value({ body: { error: 'handled' }, committedInFinalizer: true })
+                .deepEqual;
         });
         TestBattery.test('should isolate finalizer failures', battery => {
             const app = createTestApp({ requiresAuth: false });

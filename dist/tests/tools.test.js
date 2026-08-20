@@ -1,7 +1,38 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { deepMerge, normalizeByteSize, normalizeHeaderName, } from '../src/tools.js';
+import { contextGet, deepMerge, normalizeByteSize, normalizeHeaderName, } from '../src/tools.js';
 describe('tools', () => {
+    test('contextGet reads context as an overlay on endpoint metadata', () => {
+        const req = {
+            context: {
+                trace: {
+                    enabled: false,
+                    label: undefined,
+                },
+            },
+            endpointMeta: {
+                application: { maxRequestSize: 1024 },
+                trace: {
+                    enabled: true,
+                    sampleRate: 0.25,
+                    label: 'endpoint',
+                },
+            },
+        };
+        assert.equal(contextGet(req, 'trace.enabled'), false);
+        assert.equal(contextGet(req, 'trace.sampleRate'), 0.25);
+        assert.equal(contextGet(req, 'trace.label'), undefined);
+        assert.equal(contextGet(req, 'trace.missing'), undefined);
+    });
+    test('contextGet only traverses own properties and validates paths', () => {
+        const context = Object.create({ inherited: 'context prototype' });
+        const endpointMeta = Object.create({ inherited: 'meta prototype' });
+        endpointMeta.application = { maxRequestSize: 1024 };
+        const req = { context, endpointMeta };
+        assert.equal(contextGet(req, 'inherited'), undefined);
+        assert.throws(() => contextGet(req, ''), /non-empty/);
+        assert.throws(() => contextGet(req, 'nested..value'), /non-empty/);
+    });
     test('deepMerge recursively merges objects without mutating its inputs', () => {
         const defaultMeta = {
             auth: { required: false, roles: ['reader'], limits: { daily: 10 } },

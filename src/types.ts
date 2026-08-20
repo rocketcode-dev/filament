@@ -4,21 +4,23 @@
 import Headers from "./headers.js";
 import Response from './response.js';
 
-interface ObservabilityForStatus {
-  // default true for these
-  origin?: boolean,
-  method?: boolean,
-  path?: boolean,
-  search?: boolean,
-  statusCode?: boolean,
-  trace?: boolean,
-  // default false for all of these
-  statusText?: boolean,
-  requestHeaders?: boolean,
-  requestBody?: boolean,
-  responseHeaders?: boolean,
-  responseBody?: boolean
+interface _BooleanObservabilityForStatus<B> {
+  // default true for these if undefined after merging metas
+  origin?: B,
+  method?: B,
+  path?: B,
+  search?: B,
+  statusCode?: B,
+  trace?: B,
+  // default false for all of these if undefined after merging metas
+  statusText?: B,
+  requestHeaders?: B,
+  requestBody?: B,
+  responseHeaders?: B,
+  responseBody?: B
 }
+type ObservabilityForStatus = _BooleanObservabilityForStatus<boolean>;
+type NegativeObservabilityForStatus = _BooleanObservabilityForStatus<false>;
 
 /**
  * Indicates what type of policy introduced this latency. `system` is the time
@@ -78,12 +80,20 @@ interface ObservedInfo {
 }
 
 interface Observability {
-  enabled: boolean; // default false
+  enabled?: boolean; // default false
   // default is include: { [ all the default values ] }
   success?: ObservabilityForStatus;
   // default is same as success
   failure?: ObservabilityForStatus;
   [key: number]: ObservabilityForStatus;
+}
+interface NegativeObservability {
+  enabled?: false; // default false
+  // default is include: { [ all the default values ] }
+  success?: NegativeObservabilityForStatus;
+  // default is same as success
+  failure?: NegativeObservabilityForStatus;
+  [key: number]: NegativeObservabilityForStatus;
 }
 
 /**
@@ -99,7 +109,10 @@ interface Observability {
  */
 export interface ContextMeta {
   application?: {
-    observability?: Observability,
+    /**
+     * This can be used to disable observability as the request progresses
+     */
+    observability?: NegativeObservability,
     observed?: ObservedInfo
   }
 }

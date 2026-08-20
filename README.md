@@ -41,6 +41,12 @@ All middleware runs in registration order. Each middleware inspects
 an open response advances automatically; `send()`, `json()`, or `end()` makes
 that middleware terminal.
 
+Request context is a mutable, request-local overlay on immutable endpoint
+metadata. Policies that need the effective value of an overlapping setting can
+use `contextGet(req, 'path.to.setting')`; it checks the complete path in
+`req.context` first and falls back to `req.endpointMeta` when the path is absent.
+An explicitly present context value, including `undefined`, takes precedence.
+
 ### 4. Post-Request Processing
 
 Three types of post-request handlers:

@@ -202,10 +202,16 @@ export class Application<
     req: Request<T, C>,
     res: Response
   ): Promise<void> {
+    const responseHasEscaped = (): boolean =>
+      res.committed || res.headers.frozen;
+    const logLateError = (error: Error): void => {
+      console.error('Error after response started:', error);
+    };
     const defaultHandler = async (error: Error): Promise<void> => {
       // Once headers have escaped, the status and body can no longer be
-      // replaced. The server-level error path will terminate the connection.
-      if (res.committed || res.headers.frozen) {
+      // replaced. Preserve the response and make the late failure observable.
+      if (responseHasEscaped()) {
+        logLateError(error);
         return;
       }
       const statusCode = error instanceof HttpError ? error.statusCode : 500;
@@ -219,15 +225,30 @@ export class Application<
     };
 
     let currentError = err;
+    if (responseHasEscaped()) {
+      logLateError(currentError);
+      return;
+    }
+
     for (const handler of this.errorHandlers) {
+      let replacementThrown = false;
       try {
         await handler(currentError, req, res);
       } catch (caught) {
         currentError = caught instanceof Error
           ? caught
           : new Error(String(caught));
+        replacementThrown = true;
       }
-      if (res.closed) return;
+      if (responseHasEscaped()) {
+        if (replacementThrown) {
+          logLateError(currentError);
+        }
+        return;
+      }
+      // A returned, closed response handles the error. A thrown replacement
+      // continues through the chain while a buffered response is uncommitted.
+      if (res.closed && !replacementThrown) return;
     }
     await defaultHandler(currentError);
   }
@@ -418,12 +439,14 @@ export class Application<
           : new Error(String(caught));
       await this.executeErrorHandlers(err, req, res);
     } finally {
-      // Always execute finalizers
-      await this.executeFinalizers(req, res);
-
-      // Ensure response is sent
-      await res.end();
-      await res.commit();
+      // Finalization starts by closing and committing the response. Finalizers
+      // still always run, including when native response completion fails.
+      try {
+        await res.end();
+        await res.commit();
+      } finally {
+        await this.executeFinalizers(req, res);
+      }
     }
   }
 

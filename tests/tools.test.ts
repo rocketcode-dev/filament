@@ -1,12 +1,82 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import {
+  contextGet,
   deepMerge,
   normalizeByteSize,
   normalizeHeaderName,
 } from '../src/tools.js';
+import type {
+  ContextMeta,
+  FrameworkMeta,
+  Request,
+} from '../src/types.js';
 
 describe('tools', () => {
+  test('contextGet reads context as an overlay on endpoint metadata', () => {
+    interface LookupMeta extends FrameworkMeta {
+      trace: {
+        enabled: boolean;
+        sampleRate: number;
+        label: string;
+      };
+    }
+    interface LookupContext extends ContextMeta {
+      trace: {
+        enabled?: boolean;
+        label?: string | undefined;
+      };
+    }
+
+    const req: Pick<
+      Request<LookupMeta, LookupContext>,
+      'context' | 'endpointMeta'
+    > = {
+      context: {
+        trace: {
+          enabled: false,
+          label: undefined,
+        },
+      },
+      endpointMeta: {
+        application: { maxRequestSize: 1024 },
+        trace: {
+          enabled: true,
+          sampleRate: 0.25,
+          label: 'endpoint',
+        },
+      },
+    };
+
+    assert.equal(contextGet(req, 'trace.enabled'), false);
+    assert.equal(contextGet(req, 'trace.sampleRate'), 0.25);
+    assert.equal(contextGet(req, 'trace.label'), undefined);
+    assert.equal(contextGet(req, 'trace.missing'), undefined);
+  });
+
+  test('contextGet only traverses own properties and validates paths', () => {
+    interface LookupMeta extends FrameworkMeta {
+      inherited?: string;
+    }
+    interface LookupContext extends ContextMeta {
+      nested?: { value: string };
+    }
+
+    const context = Object.create({ inherited: 'context prototype' }) as
+      LookupContext;
+    const endpointMeta = Object.create({ inherited: 'meta prototype' }) as
+      LookupMeta;
+    endpointMeta.application = { maxRequestSize: 1024 };
+    const req: Pick<
+      Request<LookupMeta, LookupContext>,
+      'context' | 'endpointMeta'
+    > = { context, endpointMeta };
+
+    assert.equal(contextGet(req, 'inherited'), undefined);
+    assert.throws(() => contextGet(req, ''), /non-empty/);
+    assert.throws(() => contextGet(req, 'nested..value'), /non-empty/);
+  });
+
   test('deepMerge recursively merges objects without mutating its inputs', () => {
     interface Config {
       auth: {
