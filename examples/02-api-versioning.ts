@@ -21,7 +21,7 @@ const app = createApp<ApiMeta>({
   application: { maxRequestSize: '2MiB' },
   apiVersion: 'v2',
   responseFormat: 'standard',
-});
+}, {});
 
 // Deprecation warning middleware
 app.use(async (req, res) => {

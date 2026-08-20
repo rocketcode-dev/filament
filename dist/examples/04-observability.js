@@ -21,7 +21,7 @@ const app = createApp({
         structured: true,
     },
     service: 'api-gateway',
-});
+}, { metricsStartTime: 0 });
 const traces = [];
 const metrics = new Map();
 // Generate trace ID

@@ -150,6 +150,7 @@ export type InitHeader =
  * Incoming HTTP request object passed to handlers and middleware.
  * 
  * @template T - The application metadata type that extends FrameworkMeta
+ * @template C - The mutable, request-local context type
  * 
  * @example
  * ```typescript
@@ -158,7 +159,10 @@ export type InitHeader =
  * });
  * ```
  */
-export interface Request<T extends FrameworkMeta = FrameworkMeta> {
+export interface Request<
+  T extends FrameworkMeta = FrameworkMeta,
+  C extends ContextMeta = ContextMeta,
+> {
   /** The HTTP method of the request */
   method: HttpMethod;
   /** The request path without query string */
@@ -178,7 +182,7 @@ export interface Request<T extends FrameworkMeta = FrameworkMeta> {
    * and can be used by middleware and handlers to pass information along the
    * processing chain.
    */
-  context: Record<string, any>;
+  context: C;
   /** @internal Request start timestamp in milliseconds */
   _startTime?: number;
 }
@@ -189,6 +193,7 @@ export interface Request<T extends FrameworkMeta = FrameworkMeta> {
  * response skips the remaining middleware, route handler, and transformers.
  * 
  * @template T - The application metadata type
+ * @template C - The request context type
  * @param req - The incoming request object
  * @param res - The response object
  * 
@@ -202,9 +207,10 @@ export interface Request<T extends FrameworkMeta = FrameworkMeta> {
  * ```
  */
 export type AsyncRequestHandler<
-  T extends FrameworkMeta = FrameworkMeta
+  T extends FrameworkMeta = FrameworkMeta,
+  C extends ContextMeta = ContextMeta,
 > = (
-  req: Request<T>,
+  req: Request<T, C>,
   res: Response
 ) => void | Promise<void>;
 
@@ -214,6 +220,7 @@ export type AsyncRequestHandler<
  * handler; closing it marks the error as handled.
  * 
  * @template T - The application metadata type
+ * @template C - The request context type
  * @param err - The error that was thrown
  * @param req - The incoming request object
  * @param res - The response object
@@ -229,9 +236,12 @@ export type AsyncRequestHandler<
  * });
  * ```
  */
-export type ErrorHandler<T extends FrameworkMeta> = (
+export type ErrorHandler<
+  T extends FrameworkMeta = FrameworkMeta,
+  C extends ContextMeta = ContextMeta,
+> = (
   err: Error,
-  req: Request<T>,
+  req: Request<T, C>,
   res: Response
 ) => void | Promise<void>;
 
@@ -240,6 +250,7 @@ export type ErrorHandler<T extends FrameworkMeta> = (
  * These run regardless of success or error and should not throw.
  * 
  * @template T - The application metadata type
+ * @template C - The request context type
  * @param req - The request object
  * @param res - The response object
  * 
@@ -250,8 +261,11 @@ export type ErrorHandler<T extends FrameworkMeta> = (
  * });
  * ```
  */
-export type Finalizer<T extends FrameworkMeta> = (
-  req: Request<T>,
+export type Finalizer<
+  T extends FrameworkMeta = FrameworkMeta,
+  C extends ContextMeta = ContextMeta,
+> = (
+  req: Request<T, C>,
   res: Response
 ) => void | Promise<void>;
 
@@ -261,6 +275,7 @@ export type Finalizer<T extends FrameworkMeta> = (
  * streaming, and error-flow responses bypass transformers.
  * 
  * @template T - The application metadata type
+ * @template C - The request context type
  * @param req - The request object
  * @param res - The response object
  * 
@@ -273,8 +288,11 @@ export type Finalizer<T extends FrameworkMeta> = (
  * });
  * ```
  */
-export type ResponseTransformer<T extends FrameworkMeta> = (
-  req: Request<T>,
+export type ResponseTransformer<
+  T extends FrameworkMeta = FrameworkMeta,
+  C extends ContextMeta = ContextMeta,
+> = (
+  req: Request<T, C>,
   res: Response
 ) => void | Promise<void>;
 
@@ -282,7 +300,10 @@ export type ResponseTransformer<T extends FrameworkMeta> = (
  * Internal route definition used by the application.
  * @internal
  */
-export interface Route<T extends FrameworkMeta> {
+export interface Route<
+  T extends FrameworkMeta,
+  C extends ContextMeta = ContextMeta,
+> {
   /** HTTP method */
   method: HttpMethod;
   /** Original path pattern */
@@ -294,7 +315,7 @@ export interface Route<T extends FrameworkMeta> {
   /** Merged metadata for this route */
   meta: T;
   /** Route handler function */
-  handler: AsyncRequestHandler<T>;
+  handler: AsyncRequestHandler<T, C>;
 }
 
 // Export a marker to ensure this module has runtime exports

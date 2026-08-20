@@ -38,7 +38,7 @@ const app = createApp<PerformanceMeta>({
     ttl: 0,
   },
   priority: 'normal',
-});
+}, {});
 
 // Simple in-memory rate limiter
 const rateLimitStore = new Map<string, { count: number; resetAt: number }>();

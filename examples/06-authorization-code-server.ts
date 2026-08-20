@@ -1,5 +1,5 @@
 import { parseArgs } from 'node:util';
-import { createApp, FrameworkMeta } from '../src/index.js';
+import { ContextMeta, createApp, FrameworkMeta } from '../src/index.js';
 import {
   AccessToken,
   activeToken,
@@ -16,6 +16,7 @@ const port = Number(values.port ?? 0);
 const silent = values.silent ?? false;
 
 interface OAuthMeta extends FrameworkMeta { requiredScope?: string }
+interface OAuthContext extends ContextMeta { accessToken?: AccessToken }
 interface AuthorizationCode {
   clientId: string;
   redirectUri: string;
@@ -23,9 +24,10 @@ interface AuthorizationCode {
   scope: string[];
 }
 
-const app = createApp<OAuthMeta>({
-  application: { maxRequestSize: '2MiB' },
-});
+const app = createApp<OAuthMeta, OAuthContext>(
+  { application: { maxRequestSize: '2MiB' } },
+  {},
+);
 const codes = new Map<string, AuthorizationCode>();
 const tokens = new Map<string, AccessToken>();
 const client = {

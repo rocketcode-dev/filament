@@ -14,7 +14,7 @@ function createTestApp(meta) {
     return createApp({
         application: { maxRequestSize: '2MiB' },
         ...meta,
-    });
+    }, {});
 }
 suite('Application', () => {
     suite('create application', () => {
@@ -29,7 +29,7 @@ suite('Application', () => {
                 requiresAuth: true,
                 roles: ['admin'],
             };
-            const app = createApp(defaultMeta);
+            const app = createApp(defaultMeta, {});
             battery.test('should create app with custom meta')
                 .value(app instanceof Application).is.true;
         });
@@ -514,7 +514,7 @@ suite('Application', () => {
             const app = createApp({
                 application: { maxRequestSize: '4B' },
                 requiresAuth: false,
-            });
+            }, {});
             let handlerCalled = false;
             app.post('/limited', async (req, res) => {
                 handlerCalled = true;

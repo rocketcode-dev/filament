@@ -16,7 +16,7 @@ const app = createApp({
         ttl: 0,
     },
     priority: 'normal',
-});
+}, {});
 // Simple in-memory rate limiter
 const rateLimitStore = new Map();
 // Simple in-memory cache

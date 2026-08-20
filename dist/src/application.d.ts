@@ -1,4 +1,4 @@
-import { FrameworkMeta, HttpMethod, AsyncRequestHandler, ErrorHandler, Finalizer, ResponseTransformer } from './types.js';
+import { FrameworkMeta, ContextMeta, HttpMethod, AsyncRequestHandler, ErrorHandler, Finalizer, ResponseTransformer } from './types.js';
 /**
  * Main Application class for Filament.
  *
@@ -7,6 +7,7 @@ import { FrameworkMeta, HttpMethod, AsyncRequestHandler, ErrorHandler, Finalizer
  * Use {@link createApp} to instantiate an application.
  *
  * @template T - The application metadata type that extends FrameworkMeta
+ * @template C - The mutable, request-local context type
  *
  * @example
  * ```typescript
@@ -14,10 +15,13 @@ import { FrameworkMeta, HttpMethod, AsyncRequestHandler, ErrorHandler, Finalizer
  *   requiresAuth: boolean;
  * }
  *
- * const app = createApp<AppMeta>({
- *   application: { maxRequestSize: '2MiB' },
- *   requiresAuth: false,
- * });
+ * const app = createApp<AppMeta>(
+ *   {
+ *     application: { maxRequestSize: '2MiB' },
+ *     requiresAuth: false,
+ *   },
+ *   {},
+ * );
  *
  * app.get('/users/:id', { requiresAuth: true }, async (req, res) => {
  *   res.json({ id: req.params.id, auth: req.endpointMeta.requiresAuth });
@@ -27,44 +31,45 @@ import { FrameworkMeta, HttpMethod, AsyncRequestHandler, ErrorHandler, Finalizer
  * console.log(`Server running on port ${port}`);
  * ```
  */
-export declare class Application<T extends FrameworkMeta> {
+export declare class Application<T extends FrameworkMeta, C extends ContextMeta = ContextMeta> {
     private routes;
     private middlewares;
     private errorHandlers;
     private finalizers;
     private transformers;
     private defaultMeta;
+    private defaultContext;
     private server?;
-    constructor(defaultMeta: T);
+    constructor(defaultMeta: T, defaultContext: C);
     /**
      * Register a route. Supports multiple paths, metadata, and a single handler.
      */
-    route(method: HttpMethod, ...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]): void;
+    route(method: HttpMethod, ...pmh: (string | Partial<T> | AsyncRequestHandler<T, C>)[]): void;
     /**
      * Merge metadata into a new, normalized, deeply frozen object.
      */
     private mergeMeta;
-    get(...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]): void;
-    post(...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]): void;
-    put(...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]): void;
-    patch(...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]): void;
-    delete(...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]): void;
+    get(...pmh: (string | Partial<T> | AsyncRequestHandler<T, C>)[]): void;
+    post(...pmh: (string | Partial<T> | AsyncRequestHandler<T, C>)[]): void;
+    put(...pmh: (string | Partial<T> | AsyncRequestHandler<T, C>)[]): void;
+    patch(...pmh: (string | Partial<T> | AsyncRequestHandler<T, C>)[]): void;
+    delete(...pmh: (string | Partial<T> | AsyncRequestHandler<T, C>)[]): void;
     /**
      * Register middleware
      */
-    use(handler: AsyncRequestHandler<T>): void;
+    use(handler: AsyncRequestHandler<T, C>): void;
     /**
      * Register error handler
      */
-    onError(handler: ErrorHandler<T>): void;
+    onError(handler: ErrorHandler<T, C>): void;
     /**
      * Register finalizer
      */
-    onFinalize(handler: Finalizer<T>): void;
+    onFinalize(handler: Finalizer<T, C>): void;
     /**
      * Register response transformer
      */
-    onTransform(handler: ResponseTransformer<T>): void;
+    onTransform(handler: ResponseTransformer<T, C>): void;
     /**
      * Execute middleware chain
      */
@@ -108,8 +113,10 @@ export declare class Application<T extends FrameworkMeta> {
  * the shape of metadata available to all route handlers and middleware.
  *
  * @template T - The application metadata type that extends FrameworkMeta
+ * @template C - The mutable, request-local context type
  * @param defaultMeta - Default metadata object shared across all routes.
  *                      Route-specific metadata merges with these defaults.
+ * @param defaultContext - Baseline context cloned for each request.
  * @returns A new Application instance with the specified metadata type
  *
  * @example
@@ -119,29 +126,36 @@ export declare class Application<T extends FrameworkMeta> {
  *   rateLimit: number;
  * }
  *
- * const app = createApp<AppMeta>({
- *   application: { maxRequestSize: '2MiB' },
- *   requiresAuth: false,
- *   rateLimit: 100,
- * });
+ * interface AppContext extends ContextMeta {
+ *   requestId: string;
+ * }
+ *
+ * const app = createApp<AppMeta, AppContext>(
+ *   {
+ *     application: { maxRequestSize: '2MiB' },
+ *     requiresAuth: false,
+ *     rateLimit: 100,
+ *   },
+ *   { requestId: '' },
+ * );
  *
  * app.get('/public', {}, async (req, res) => {
  *   res.json({ auth: req.endpointMeta.requiresAuth });
  * });
  * ```
  */
-export declare function createApp<T extends FrameworkMeta>(defaultMeta: T): Application<T>;
-export declare class RouteContext<T extends FrameworkMeta> {
+export declare function createApp<T extends FrameworkMeta, C extends ContextMeta = ContextMeta>(defaultMeta: T, defaultContext: C): Application<T, C>;
+export declare class RouteContext<T extends FrameworkMeta, C extends ContextMeta = ContextMeta> {
     private app;
     private bases;
     private metas;
-    constructor(app: Application<T>, ...basesAndMetas: (string | Partial<T>)[]);
-    route(method: HttpMethod | HttpMethod[], ...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]): void;
-    get(...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]): void;
-    post(...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]): void;
-    put(...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]): void;
-    patch(...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]): void;
-    delete(...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]): void;
+    constructor(app: Application<T, C>, ...basesAndMetas: (string | Partial<T>)[]);
+    route(method: HttpMethod | HttpMethod[], ...pmh: (string | Partial<T> | AsyncRequestHandler<T, C>)[]): void;
+    get(...pmh: (string | Partial<T> | AsyncRequestHandler<T, C>)[]): void;
+    post(...pmh: (string | Partial<T> | AsyncRequestHandler<T, C>)[]): void;
+    put(...pmh: (string | Partial<T> | AsyncRequestHandler<T, C>)[]): void;
+    patch(...pmh: (string | Partial<T> | AsyncRequestHandler<T, C>)[]): void;
+    delete(...pmh: (string | Partial<T> | AsyncRequestHandler<T, C>)[]): void;
 }
-export declare function createRouteContext<T extends FrameworkMeta>(app: Application<T>, ...basesAndMetas: (string | Partial<T>)[]): RouteContext<T>;
+export declare function createRouteContext<T extends FrameworkMeta, C extends ContextMeta = ContextMeta>(app: Application<T, C>, ...basesAndMetas: (string | Partial<T>)[]): RouteContext<T, C>;
 //# sourceMappingURL=application.d.ts.map

@@ -11,6 +11,7 @@ export {
 
 export type {
   FrameworkMeta,
+  ContextMeta,
   HttpMethod,
   Request,
   AsyncRequestHandler,

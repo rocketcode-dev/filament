@@ -1,4 +1,4 @@
-import { createApp, FrameworkMeta } from '../src/index.js';
+import { ContextMeta, createApp, FrameworkMeta } from '../src/index.js';
 import { parseArgs } from 'node:util';
 
 const { port: portOption, silent = false } = parseArgs({
@@ -30,24 +30,31 @@ interface ObservabilityMeta extends FrameworkMeta {
   service: string;
 }
 
-const app = createApp<ObservabilityMeta>({
-  application: { maxRequestSize: '2MiB' },
-  trace: {
-    enabled: true,
-    sampleRate: 1.0,
-    includeHeaders: false,
-    includeBody: false,
+interface ObservabilityContext extends ContextMeta {
+  metricsStartTime: number;
+}
+
+const app = createApp<ObservabilityMeta, ObservabilityContext>(
+  {
+    application: { maxRequestSize: '2MiB' },
+    trace: {
+      enabled: true,
+      sampleRate: 1.0,
+      includeHeaders: false,
+      includeBody: false,
+    },
+    metrics: {
+      enabled: true,
+      dimensions: ['endpoint', 'status'],
+    },
+    logging: {
+      level: 'info',
+      structured: true,
+    },
+    service: 'api-gateway',
   },
-  metrics: {
-    enabled: true,
-    dimensions: ['endpoint', 'status'],
-  },
-  logging: {
-    level: 'info',
-    structured: true,
-  },
-  service: 'api-gateway',
-});
+  { metricsStartTime: 0 },
+);
 
 // Simple trace storage
 interface Trace {

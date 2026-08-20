@@ -6,9 +6,7 @@ const { values } = parseArgs({
 });
 const port = Number(values.port ?? 0);
 const silent = values.silent ?? false;
-const app = createApp({
-    application: { maxRequestSize: '2MiB' },
-});
+const app = createApp({ application: { maxRequestSize: '2MiB' } }, {});
 const tokens = new Map();
 const clients = new Map([
     ['analysis-worker', { secret: 'analysis-secret', scopes: ['text:analyze'] }],

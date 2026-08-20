@@ -1,10 +1,22 @@
 import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
 import { suite, test } from 'node:test';
-import { createApp, FrameworkMeta, Request, Response } from '../src/index.js';
+import {
+  ContextMeta,
+  createApp,
+  FrameworkMeta,
+  Request,
+  Response,
+} from '../src/index.js';
 
 interface IsolationMeta extends FrameworkMeta {
   routeName: 'alpha' | 'beta' | 'failure';
+}
+
+interface IsolationContext extends ContextMeta {
+  requestId: string;
+  middleware: string;
+  state: { visits: number };
 }
 
 interface Result {
@@ -12,6 +24,7 @@ interface Result {
   route: string;
   param: string;
   middleware: string;
+  visits: number;
   transformed?: string;
   error?: string;
 }
@@ -23,16 +36,25 @@ function jitter(value: string, salt = 0): Promise<void> {
 
 suite('Request isolation under high concurrency', () => {
   test('does not crosstalk across routes, middleware, transformers, or exception handlers', async () => {
-    const app = createApp<IsolationMeta>({
-      application: { maxRequestSize: '2MiB' },
-      routeName: 'alpha',
-    });
+    const defaultContext: IsolationContext = {
+      requestId: '',
+      middleware: '',
+      state: { visits: 0 },
+    };
+    const app = createApp<IsolationMeta, IsolationContext>(
+      {
+        application: { maxRequestSize: '2MiB' },
+        routeName: 'alpha',
+      },
+      defaultContext,
+    );
 
     app.use(async (req) => {
       const requestId = String(req.headers.get('x-request-id'));
       await jitter(requestId, 1);
       req.context.requestId = requestId;
       req.context.middleware = `global:${requestId}`;
+      req.context.state.visits += 1;
     });
 
     app.use(async (req) => {
@@ -41,13 +63,17 @@ suite('Request isolation under high concurrency', () => {
       req.context.middleware = `alpha:${req.context.requestId}`;
     });
 
-    const success = async (req: Request<IsolationMeta>, res: Response) => {
+    const success = async (
+      req: Request<IsolationMeta, IsolationContext>,
+      res: Response,
+    ) => {
       await jitter(req.context.requestId, 3);
       await res.json({
         requestId: req.context.requestId,
         route: req.endpointMeta.routeName,
         param: req.params.id,
         middleware: req.context.middleware,
+        visits: req.context.state.visits,
       });
     };
     app.get('/alpha/:id', { routeName: 'alpha' }, success);
@@ -72,6 +98,7 @@ suite('Request isolation under high concurrency', () => {
         route: req.endpointMeta.routeName,
         param: req.params.id,
         middleware: req.context.middleware,
+        visits: req.context.state.visits,
         error: error.message,
       });
     });
@@ -104,6 +131,7 @@ suite('Request isolation under high concurrency', () => {
           result.body.middleware,
           result.kind === 'alpha' ? `alpha:${requestId}` : `global:${requestId}`,
         );
+        assert.equal(result.body.visits, 1);
 
         if (result.kind === 'failure') {
           assert.equal(result.status, 500);
@@ -117,6 +145,11 @@ suite('Request isolation under high concurrency', () => {
           assert.equal(result.body.error, undefined);
         }
       }
+      assert.deepEqual(defaultContext, {
+        requestId: '',
+        middleware: '',
+        state: { visits: 0 },
+      });
     } finally {
       await app.close();
     }

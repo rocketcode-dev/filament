@@ -6,9 +6,7 @@ const { values } = parseArgs({
 });
 const port = Number(values.port ?? 0);
 const silent = values.silent ?? false;
-const app = createApp({
-    application: { maxRequestSize: '2MiB' },
-});
+const app = createApp({ application: { maxRequestSize: '2MiB' } }, {});
 const codes = new Map();
 const tokens = new Map();
 const client = {

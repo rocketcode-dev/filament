@@ -1,22 +1,28 @@
 import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
 import { suite, test } from 'node:test';
-import { createApp } from '../src/index.js';
+import { createApp, } from '../src/index.js';
 function jitter(value, salt = 0) {
     const milliseconds = (Number(value.replace(/\D/g, '')) + salt) % 9;
     return delay(milliseconds);
 }
 suite('Request isolation under high concurrency', () => {
     test('does not crosstalk across routes, middleware, transformers, or exception handlers', async () => {
+        const defaultContext = {
+            requestId: '',
+            middleware: '',
+            state: { visits: 0 },
+        };
         const app = createApp({
             application: { maxRequestSize: '2MiB' },
             routeName: 'alpha',
-        });
+        }, defaultContext);
         app.use(async (req) => {
             const requestId = String(req.headers.get('x-request-id'));
             await jitter(requestId, 1);
             req.context.requestId = requestId;
             req.context.middleware = `global:${requestId}`;
+            req.context.state.visits += 1;
         });
         app.use(async (req) => {
             if (req.endpointMeta.routeName !== 'alpha')
@@ -31,6 +37,7 @@ suite('Request isolation under high concurrency', () => {
                 route: req.endpointMeta.routeName,
                 param: req.params.id,
                 middleware: req.context.middleware,
+                visits: req.context.state.visits,
             });
         };
         app.get('/alpha/:id', { routeName: 'alpha' }, success);
@@ -53,6 +60,7 @@ suite('Request isolation under high concurrency', () => {
                 route: req.endpointMeta.routeName,
                 param: req.params.id,
                 middleware: req.context.middleware,
+                visits: req.context.state.visits,
                 error: error.message,
             });
         });
@@ -80,6 +88,7 @@ suite('Request isolation under high concurrency', () => {
                 assert.equal(result.body.route, result.kind);
                 assert.equal(result.body.param, String(result.index));
                 assert.equal(result.body.middleware, result.kind === 'alpha' ? `alpha:${requestId}` : `global:${requestId}`);
+                assert.equal(result.body.visits, 1);
                 if (result.kind === 'failure') {
                     assert.equal(result.status, 500);
                     assert.equal(result.transformedHeader, null);
@@ -93,6 +102,11 @@ suite('Request isolation under high concurrency', () => {
                     assert.equal(result.body.error, undefined);
                 }
             }
+            assert.deepEqual(defaultContext, {
+                requestId: '',
+                middleware: '',
+                state: { visits: 0 },
+            });
         }
         finally {
             await app.close();

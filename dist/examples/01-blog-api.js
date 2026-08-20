@@ -8,7 +8,7 @@ const app = createApp({
     application: { maxRequestSize: '2MiB' },
     requiresAuth: false,
     rateLimit: 100,
-});
+}, {});
 // Mock user database
 const users = new Map([
     ['token-admin', { id: 1, role: 'admin' }],

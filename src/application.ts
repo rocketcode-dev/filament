@@ -2,6 +2,7 @@ import http from 'http';
 import { URL } from 'url';
 import {
   FrameworkMeta,
+  ContextMeta,
   Headers,
   HttpMethod,
   Request,
@@ -24,6 +25,7 @@ import { deepMerge, normalizeByteSize } from './tools.js';
  * Use {@link createApp} to instantiate an application.
  * 
  * @template T - The application metadata type that extends FrameworkMeta
+ * @template C - The mutable, request-local context type
  * 
  * @example
  * ```typescript
@@ -31,10 +33,13 @@ import { deepMerge, normalizeByteSize } from './tools.js';
  *   requiresAuth: boolean;
  * }
  * 
- * const app = createApp<AppMeta>({
- *   application: { maxRequestSize: '2MiB' },
- *   requiresAuth: false,
- * });
+ * const app = createApp<AppMeta>(
+ *   {
+ *     application: { maxRequestSize: '2MiB' },
+ *     requiresAuth: false,
+ *   },
+ *   {},
+ * );
  * 
  * app.get('/users/:id', { requiresAuth: true }, async (req, res) => {
  *   res.json({ id: req.params.id, auth: req.endpointMeta.requiresAuth });
@@ -44,17 +49,22 @@ import { deepMerge, normalizeByteSize } from './tools.js';
  * console.log(`Server running on port ${port}`);
  * ```
  */
-export class Application<T extends FrameworkMeta> {
-  private routes: Route<T>[] = [];
-  private middlewares: AsyncRequestHandler<T>[] = [];
-  private errorHandlers: ErrorHandler<T>[] = [];
-  private finalizers: Finalizer<T>[] = [];
-  private transformers: ResponseTransformer<T>[] = [];
+export class Application<
+  T extends FrameworkMeta,
+  C extends ContextMeta = ContextMeta,
+> {
+  private routes: Route<T, C>[] = [];
+  private middlewares: AsyncRequestHandler<T, C>[] = [];
+  private errorHandlers: ErrorHandler<T, C>[] = [];
+  private finalizers: Finalizer<T, C>[] = [];
+  private transformers: ResponseTransformer<T, C>[] = [];
   private defaultMeta: T;
+  private defaultContext: C;
   private server?: http.Server;
 
-  constructor(defaultMeta: T) {
+  constructor(defaultMeta: T, defaultContext: C) {
     this.defaultMeta = this.mergeMeta(defaultMeta);
+    this.defaultContext = deepMerge(defaultContext);
   }
 
   /**
@@ -62,11 +72,11 @@ export class Application<T extends FrameworkMeta> {
    */
   public route(
     method: HttpMethod,
-    ...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]
+    ...pmh: (string | Partial<T> | AsyncRequestHandler<T, C>)[]
   ): void {
     const paths: string[] = [];
     const metas: Partial<T>[] = [];
-    let handler: AsyncRequestHandler<T> | null = null;
+    let handler: AsyncRequestHandler<T, C> | null = null;
 
     for (const p of pmh) {
       if (typeof p === 'string') {
@@ -112,31 +122,31 @@ export class Application<T extends FrameworkMeta> {
 
   // HTTP method helpers
   get(
-    ...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]
+    ...pmh: (string | Partial<T> | AsyncRequestHandler<T, C>)[]
   ): void {
     this.route('GET', ...pmh);
   }
 
   post(
-    ...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]
+    ...pmh: (string | Partial<T> | AsyncRequestHandler<T, C>)[]
   ): void {
     this.route('POST', ...pmh);
   }
 
   put(
-    ...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]
+    ...pmh: (string | Partial<T> | AsyncRequestHandler<T, C>)[]
   ): void {
     this.route('PUT', ...pmh);
   }
 
   patch(
-    ...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]
+    ...pmh: (string | Partial<T> | AsyncRequestHandler<T, C>)[]
   ): void {
     this.route('PATCH', ...pmh);
   }
 
   delete(
-    ...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]
+    ...pmh: (string | Partial<T> | AsyncRequestHandler<T, C>)[]
   ): void {
     this.route('DELETE', ...pmh);
   }
@@ -144,28 +154,28 @@ export class Application<T extends FrameworkMeta> {
   /**
    * Register middleware
    */
-  use(handler: AsyncRequestHandler<T>): void {
+  use(handler: AsyncRequestHandler<T, C>): void {
     this.middlewares.push(handler);
   }
 
   /**
    * Register error handler
    */
-  onError(handler: ErrorHandler<T>): void {
+  onError(handler: ErrorHandler<T, C>): void {
     this.errorHandlers.push(handler);
   }
 
   /**
    * Register finalizer
    */
-  onFinalize(handler: Finalizer<T>): void {
+  onFinalize(handler: Finalizer<T, C>): void {
     this.finalizers.push(handler);
   }
 
   /**
    * Register response transformer
    */
-  onTransform(handler: ResponseTransformer<T>): void {
+  onTransform(handler: ResponseTransformer<T, C>): void {
     this.transformers.push(handler);
   }
 
@@ -173,9 +183,9 @@ export class Application<T extends FrameworkMeta> {
    * Execute middleware chain
    */
   private async executeMiddlewareChain(
-    req: Request<T>,
+    req: Request<T, C>,
     res: Response,
-    middlewares: AsyncRequestHandler<T>[]
+    middlewares: AsyncRequestHandler<T, C>[]
   ): Promise<boolean> {
     for (const middleware of middlewares) {
       await middleware(req, res);
@@ -189,7 +199,7 @@ export class Application<T extends FrameworkMeta> {
    */
   private async executeErrorHandlers(
     err: Error,
-    req: Request<T>,
+    req: Request<T, C>,
     res: Response
   ): Promise<void> {
     const defaultHandler = async (error: Error): Promise<void> => {
@@ -225,7 +235,7 @@ export class Application<T extends FrameworkMeta> {
   /**
    * Execute response transformers
    */
-  private async executeTransformers(req: Request<T>, res: Response)
+  private async executeTransformers(req: Request<T, C>, res: Response)
   : Promise<void> {
     for (const transformer of this.transformers) {
       if (res.committed) {
@@ -242,7 +252,7 @@ export class Application<T extends FrameworkMeta> {
   /**
    * Execute finalizers
    */
-  private async executeFinalizers(req: Request<T>, res: Response)
+  private async executeFinalizers(req: Request<T, C>, res: Response)
   : Promise<void> {
     for (const finalizer of this.finalizers) {
       try {
@@ -327,13 +337,13 @@ export class Application<T extends FrameworkMeta> {
 
     // Create a base request before routing so routing failures can use the
     // standard error and finalizer flow.
-    let req: Request<T> = {
+    let req: Request<T, C> = {
       method,
       path,
       params: {},
       query,
       headers: new Headers('request', headers),
-      context: {}, // Initialize empty context
+      context: deepMerge(this.defaultContext),
       endpointMeta: this.defaultMeta,
       _startTime: Date.now(),
     };
@@ -347,7 +357,7 @@ export class Application<T extends FrameworkMeta> {
     try {
       if (requestTargetError) throw requestTargetError;
 
-      let matchedRoute: Route<T> | undefined;
+      let matchedRoute: Route<T, C> | undefined;
       let params: Record<string, string> = {};
 
       for (const route of this.routes) {
@@ -485,8 +495,10 @@ export class Application<T extends FrameworkMeta> {
  * the shape of metadata available to all route handlers and middleware.
  * 
  * @template T - The application metadata type that extends FrameworkMeta
+ * @template C - The mutable, request-local context type
  * @param defaultMeta - Default metadata object shared across all routes.
  *                      Route-specific metadata merges with these defaults.
+ * @param defaultContext - Baseline context cloned for each request.
  * @returns A new Application instance with the specified metadata type
  * 
  * @example
@@ -496,27 +508,42 @@ export class Application<T extends FrameworkMeta> {
  *   rateLimit: number;
  * }
  * 
- * const app = createApp<AppMeta>({
- *   application: { maxRequestSize: '2MiB' },
- *   requiresAuth: false,
- *   rateLimit: 100,
- * });
+ * interface AppContext extends ContextMeta {
+ *   requestId: string;
+ * }
+ *
+ * const app = createApp<AppMeta, AppContext>(
+ *   {
+ *     application: { maxRequestSize: '2MiB' },
+ *     requiresAuth: false,
+ *     rateLimit: 100,
+ *   },
+ *   { requestId: '' },
+ * );
  * 
  * app.get('/public', {}, async (req, res) => {
  *   res.json({ auth: req.endpointMeta.requiresAuth });
  * });
  * ```
  */
-export function createApp<T extends FrameworkMeta>(defaultMeta: T)
-: Application<T> {
-  return new Application<T>(defaultMeta);
+export function createApp<
+  T extends FrameworkMeta,
+  C extends ContextMeta = ContextMeta,
+>(defaultMeta: T, defaultContext: C): Application<T, C> {
+  return new Application<T, C>(defaultMeta, defaultContext);
 }
 
-export class RouteContext<T extends FrameworkMeta> {
-  private app: Application<T>;
+export class RouteContext<
+  T extends FrameworkMeta,
+  C extends ContextMeta = ContextMeta,
+> {
+  private app: Application<T, C>;
   private bases: string[];
   private metas: Partial<T>[];
-  constructor(app: Application<T>, ...basesAndMetas: (string | Partial<T>)[]) {
+  constructor(
+    app: Application<T, C>,
+    ...basesAndMetas: (string | Partial<T>)[]
+  ) {
     this.app = app;
     this.bases = [];
     this.metas = [];
@@ -533,11 +560,11 @@ export class RouteContext<T extends FrameworkMeta> {
   }
   route(
     method: HttpMethod|HttpMethod[],
-    ...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]
+    ...pmh: (string | Partial<T> | AsyncRequestHandler<T, C>)[]
   ) {
     const paths: string[] = [];
     const metas = Array.from(this.metas);
-    let handler: AsyncRequestHandler<T> | null = null;
+    let handler: AsyncRequestHandler<T, C> | null = null;
     for (const item of pmh) {
       if (typeof item === 'string') {
         for (const base of this.bases) {
@@ -563,39 +590,42 @@ export class RouteContext<T extends FrameworkMeta> {
 
   // HTTP method helpers
   get(
-    ...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]
+    ...pmh: (string | Partial<T> | AsyncRequestHandler<T, C>)[]
   ): void {
     this.route('GET', ...pmh);
   }
 
   post(
-    ...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]
+    ...pmh: (string | Partial<T> | AsyncRequestHandler<T, C>)[]
   ): void {
     this.route('POST', ...pmh);
   }
 
   put(
-    ...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]
+    ...pmh: (string | Partial<T> | AsyncRequestHandler<T, C>)[]
   ): void {
     this.route('PUT', ...pmh);
   }
 
   patch(
-    ...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]
+    ...pmh: (string | Partial<T> | AsyncRequestHandler<T, C>)[]
   ): void {
     this.route('PATCH', ...pmh);
   }
 
   delete(
-    ...pmh: (string | Partial<T> | AsyncRequestHandler<T>)[]
+    ...pmh: (string | Partial<T> | AsyncRequestHandler<T, C>)[]
   ): void {
     this.route('DELETE', ...pmh);
   }
 }
 
-export function createRouteContext<T extends FrameworkMeta>(
-  app: Application<T>,
+export function createRouteContext<
+  T extends FrameworkMeta,
+  C extends ContextMeta = ContextMeta,
+>(
+  app: Application<T, C>,
   ...basesAndMetas: (string | Partial<T>)[]
-): RouteContext<T> {
-  return new RouteContext<T>(app, ...basesAndMetas);
+): RouteContext<T, C> {
+  return new RouteContext<T, C>(app, ...basesAndMetas);
 }

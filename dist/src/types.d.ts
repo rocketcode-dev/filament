@@ -3,6 +3,99 @@
  */
 import Headers from "./headers.js";
 import Response from './response.js';
+interface ObservabilityForStatus {
+    origin?: boolean;
+    method?: boolean;
+    path?: boolean;
+    search?: boolean;
+    statusCode?: boolean;
+    trace?: boolean;
+    statusText?: boolean;
+    requestHeaders?: boolean;
+    requestBody?: boolean;
+    responseHeaders?: boolean;
+    responseBody?: boolean;
+}
+/**
+ * Indicates what type of policy introduced this latency. `system` is the time
+ * between receiving the headers of the request and starting the first
+ * middleware or error policy.
+ */
+type PolicyTypeEnum = 'system' | 'middleware' | 'route' | 'transformer' | 'error' | 'finalizer';
+/**
+ * Indicates the status of the transaction at the time the policy ended.
+ * - `new` means the response hasn't be created yet
+ * - `open` means headers and status code can still change
+ * - `headers` means the headers heave been sent and can no longer be changed.
+ *    This is only possible in streaming mode.
+ * - `closed` means the response is closed and middlewares and routes can no
+ *    longer operate. In streaming mode, it is also no longer possible to send
+ *    body data and transformers are also excluded. In buffered mode, the body
+ *    and headers can still be changed by the transformers.
+ * - `committed` means the response is out and nothing can change.
+ */
+type EndStatusEnum = 'new' | 'open' | 'headers' | 'closed' | 'committed';
+/**
+ * How the response data is handled. In streaming mode, response data chunks go
+ * out as soon as they are sent and they are never stored. In buffered mode,
+ * the data is held until the transforms are complete, then it all goes out as
+ * a unit.
+ */
+type ModeEnum = 'buffered' | 'streaming';
+interface ObservedInfo {
+    /**
+     * Global transaction ID.
+     */
+    gitd: string;
+    /**
+     * Time the transaction started, expressed as millis since the epoch
+     */
+    startTime: number;
+    responseInfo: {
+        statusCode?: number;
+        statusText?: string;
+        headers?: string;
+        body?: string;
+    };
+    requestInfo: {
+        origin?: string;
+        method?: HttpMethod;
+        path?: string;
+        search?: string;
+        headers?: string[];
+        body?: string[];
+    };
+    trace?: {
+        type: PolicyTypeEnum;
+        name?: string;
+        endtime: number;
+        endStatus: EndStatusEnum;
+        mode?: ModeEnum;
+    }[];
+}
+interface Observability {
+    enabled: boolean;
+    success?: ObservabilityForStatus;
+    failure?: ObservabilityForStatus;
+    [key: number]: ObservabilityForStatus;
+}
+/**
+ * Base interface for context metadata. Extend this interface to add custom
+ * metadata that will be available on request handlers.
+ *
+ * @example
+ * ```typescript
+ * interface MyContext extends ContextMeta {
+ *  includeWidget: true
+ * }
+ * ```
+ */
+export interface ContextMeta {
+    application?: {
+        observability?: Observability;
+        observed?: ObservedInfo;
+    };
+}
 /**
  * Base interface for application metadata. Extend this interface to add custom
  * metadata that will be available on request handlers.
@@ -22,8 +115,14 @@ export interface FrameworkMeta {
     _internal?: unknown;
     /** Framework-level behavior shared by endpoint metadata. */
     application: {
-        /** Maximum buffered request body size, as bytes or a byte-size string. */
+        /**
+         * Maximum buffered request body size, as bytes or a byte-size string.
+         */
         maxRequestSize: number | string;
+        /**
+         * Information about the observability of an endpoint.
+         */
+        observability?: Observability;
     };
 }
 export { Headers };
@@ -39,6 +138,7 @@ export type InitHeader = Record<string, string | string[]> | [
  * Incoming HTTP request object passed to handlers and middleware.
  *
  * @template T - The application metadata type that extends FrameworkMeta
+ * @template C - The mutable, request-local context type
  *
  * @example
  * ```typescript
@@ -47,7 +147,7 @@ export type InitHeader = Record<string, string | string[]> | [
  * });
  * ```
  */
-export interface Request<T extends FrameworkMeta = FrameworkMeta> {
+export interface Request<T extends FrameworkMeta = FrameworkMeta, C extends ContextMeta = ContextMeta> {
     /** The HTTP method of the request */
     method: HttpMethod;
     /** The request path without query string */
@@ -67,7 +167,7 @@ export interface Request<T extends FrameworkMeta = FrameworkMeta> {
      * and can be used by middleware and handlers to pass information along the
      * processing chain.
      */
-    context: Record<string, any>;
+    context: C;
     /** @internal Request start timestamp in milliseconds */
     _startTime?: number;
 }
@@ -77,6 +177,7 @@ export interface Request<T extends FrameworkMeta = FrameworkMeta> {
  * response skips the remaining middleware, route handler, and transformers.
  *
  * @template T - The application metadata type
+ * @template C - The request context type
  * @param req - The incoming request object
  * @param res - The response object
  *
@@ -89,13 +190,14 @@ export interface Request<T extends FrameworkMeta = FrameworkMeta> {
  * };
  * ```
  */
-export type AsyncRequestHandler<T extends FrameworkMeta = FrameworkMeta> = (req: Request<T>, res: Response) => void | Promise<void>;
+export type AsyncRequestHandler<T extends FrameworkMeta = FrameworkMeta, C extends ContextMeta = ContextMeta> = (req: Request<T, C>, res: Response) => void | Promise<void>;
 /**
  * Error handler function type for handling exceptions in request processing.
  * Returning with an open response advances to the next registered error
  * handler; closing it marks the error as handled.
  *
  * @template T - The application metadata type
+ * @template C - The request context type
  * @param err - The error that was thrown
  * @param req - The incoming request object
  * @param res - The response object
@@ -111,12 +213,13 @@ export type AsyncRequestHandler<T extends FrameworkMeta = FrameworkMeta> = (req:
  * });
  * ```
  */
-export type ErrorHandler<T extends FrameworkMeta> = (err: Error, req: Request<T>, res: Response) => void | Promise<void>;
+export type ErrorHandler<T extends FrameworkMeta = FrameworkMeta, C extends ContextMeta = ContextMeta> = (err: Error, req: Request<T, C>, res: Response) => void | Promise<void>;
 /**
  * Finalizer function type for cleanup operations after response is sent.
  * These run regardless of success or error and should not throw.
  *
  * @template T - The application metadata type
+ * @template C - The request context type
  * @param req - The request object
  * @param res - The response object
  *
@@ -127,13 +230,14 @@ export type ErrorHandler<T extends FrameworkMeta> = (err: Error, req: Request<T>
  * });
  * ```
  */
-export type Finalizer<T extends FrameworkMeta> = (req: Request<T>, res: Response) => void | Promise<void>;
+export type Finalizer<T extends FrameworkMeta = FrameworkMeta, C extends ContextMeta = ContextMeta> = (req: Request<T, C>, res: Response) => void | Promise<void>;
 /**
  * Response transformer function type for modifying buffered route responses
  * after the handler completes and before commit. Middleware-produced,
  * streaming, and error-flow responses bypass transformers.
  *
  * @template T - The application metadata type
+ * @template C - The request context type
  * @param req - The request object
  * @param res - The response object
  *
@@ -146,12 +250,12 @@ export type Finalizer<T extends FrameworkMeta> = (req: Request<T>, res: Response
  * });
  * ```
  */
-export type ResponseTransformer<T extends FrameworkMeta> = (req: Request<T>, res: Response) => void | Promise<void>;
+export type ResponseTransformer<T extends FrameworkMeta = FrameworkMeta, C extends ContextMeta = ContextMeta> = (req: Request<T, C>, res: Response) => void | Promise<void>;
 /**
  * Internal route definition used by the application.
  * @internal
  */
-export interface Route<T extends FrameworkMeta> {
+export interface Route<T extends FrameworkMeta, C extends ContextMeta = ContextMeta> {
     /** HTTP method */
     method: HttpMethod;
     /** Original path pattern */
@@ -163,7 +267,7 @@ export interface Route<T extends FrameworkMeta> {
     /** Merged metadata for this route */
     meta: T;
     /** Route handler function */
-    handler: AsyncRequestHandler<T>;
+    handler: AsyncRequestHandler<T, C>;
 }
 export declare const __type_module__ = true;
 //# sourceMappingURL=types.d.ts.map

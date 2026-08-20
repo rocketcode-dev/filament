@@ -26,7 +26,7 @@ const app = createApp<ContentMeta>({
   compress: false,
   prettyPrint: false,
   includeMetadata: false,
-});
+}, {});
 
 // Sample data
 const books = [

@@ -21,7 +21,7 @@ const app = createApp<BlogMeta>({
   application: { maxRequestSize: '2MiB' },
   requiresAuth: false,
   rateLimit: 100,
-});
+}, {});
 
 // Mock user database
 const users = new Map([

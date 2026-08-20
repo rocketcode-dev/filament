@@ -72,7 +72,7 @@ const defaultMeta: AppMeta = {
 };
 
 // Create app
-const app = createApp<AppMeta>(defaultMeta);
+const app = createApp<AppMeta>(defaultMeta, {});
 
 // Add middleware that inspects metadata
 app.use(async (req, res) => {
@@ -104,13 +104,14 @@ const port = await app.listen(3000);
 
 ## API Reference
 
-### `createApp<T>(defaultMeta: T): Application<T>`
+### `createApp<T, C>(defaultMeta: T, defaultContext: C): Application<T, C>`
 
-Creates a new application instance with typed metadata.
+Creates a new application instance with typed metadata and request context.
 
 **Parameters:**
 
 - `defaultMeta`: Complete implementation of your metadata interface
+- `defaultContext`: Baseline context object, cloned for every request
 
 **Returns:** Application instance
 
@@ -119,13 +120,13 @@ Creates a new application instance with typed metadata.
 #### HTTP Methods
 
 ```typescript
-type RoutePart<T> = string | Partial<T> | AsyncRequestHandler<T>;
+type RoutePart<T, C> = string | Partial<T> | AsyncRequestHandler<T, C>;
 
-app.get(...parts: RoutePart<T>[]): void
-app.post(...parts: RoutePart<T>[]): void
-app.put(...parts: RoutePart<T>[]): void
-app.patch(...parts: RoutePart<T>[]): void
-app.delete(...parts: RoutePart<T>[]): void
+app.get(...parts: RoutePart<T, C>[]): void
+app.post(...parts: RoutePart<T, C>[]): void
+app.put(...parts: RoutePart<T, C>[]): void
+app.patch(...parts: RoutePart<T, C>[]): void
+app.delete(...parts: RoutePart<T, C>[]): void
 ```
 
 A registration accepts one handler, one or more paths, and zero or more
@@ -134,7 +135,7 @@ metadata overrides. Metadata sources merge in argument order.
 #### Middleware Registration
 
 ```typescript
-app.use(middleware: AsyncRequestHandler<T>): void
+app.use(middleware: AsyncRequestHandler<T, C>): void
 ```
 
 Middleware is application-wide by design. Use `req.endpointMeta` inside the
@@ -143,9 +144,9 @@ middleware to decide whether its behavior applies to the matched endpoint.
 #### Post-Request Handlers
 
 ```typescript
-app.onError(handler: ErrorHandler<T>): void
-app.onTransform(handler: ResponseTransformer<T>): void
-app.onFinalize(handler: Finalizer<T>): void
+app.onError(handler: ErrorHandler<T, C>): void
+app.onTransform(handler: ResponseTransformer<T, C>): void
+app.onFinalize(handler: Finalizer<T, C>): void
 ```
 
 #### Server Control
@@ -158,7 +159,7 @@ app.close(): Promise<void>
 ## Request Object
 
 ```typescript
-interface Request<T extends FrameworkMeta> {
+interface Request<T extends FrameworkMeta, C extends ContextMeta> {
   method: HttpMethod;
   path: string;
   params: Record<string, string>;
@@ -166,7 +167,7 @@ interface Request<T extends FrameworkMeta> {
   headers: Headers;
   body?: Buffer;
   endpointMeta: Readonly<T>;
-  context: Record<string, any>;
+  context: C;
 }
 ```
 
@@ -346,7 +347,7 @@ See `src/example.ts` for a complete working example with:
 
 Full TypeScript support with strict typing:
 
-- Generic `Application<T>` for typed metadata
+- Generic `Application<T, C>` for typed metadata and request context
 - Type-safe request/response objects
 - Compile-time validation of metadata interfaces
 

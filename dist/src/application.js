@@ -13,6 +13,7 @@ import { deepMerge, normalizeByteSize } from './tools.js';
  * Use {@link createApp} to instantiate an application.
  *
  * @template T - The application metadata type that extends FrameworkMeta
+ * @template C - The mutable, request-local context type
  *
  * @example
  * ```typescript
@@ -20,10 +21,13 @@ import { deepMerge, normalizeByteSize } from './tools.js';
  *   requiresAuth: boolean;
  * }
  *
- * const app = createApp<AppMeta>({
- *   application: { maxRequestSize: '2MiB' },
- *   requiresAuth: false,
- * });
+ * const app = createApp<AppMeta>(
+ *   {
+ *     application: { maxRequestSize: '2MiB' },
+ *     requiresAuth: false,
+ *   },
+ *   {},
+ * );
  *
  * app.get('/users/:id', { requiresAuth: true }, async (req, res) => {
  *   res.json({ id: req.params.id, auth: req.endpointMeta.requiresAuth });
@@ -34,13 +38,14 @@ import { deepMerge, normalizeByteSize } from './tools.js';
  * ```
  */
 export class Application {
-    constructor(defaultMeta) {
+    constructor(defaultMeta, defaultContext) {
         this.routes = [];
         this.middlewares = [];
         this.errorHandlers = [];
         this.finalizers = [];
         this.transformers = [];
         this.defaultMeta = this.mergeMeta(defaultMeta);
+        this.defaultContext = deepMerge(defaultContext);
     }
     /**
      * Register a route. Supports multiple paths, metadata, and a single handler.
@@ -270,7 +275,7 @@ export class Application {
             params: {},
             query,
             headers: new Headers('request', headers),
-            context: {}, // Initialize empty context
+            context: deepMerge(this.defaultContext),
             endpointMeta: this.defaultMeta,
             _startTime: Date.now(),
         };
@@ -404,8 +409,10 @@ export class Application {
  * the shape of metadata available to all route handlers and middleware.
  *
  * @template T - The application metadata type that extends FrameworkMeta
+ * @template C - The mutable, request-local context type
  * @param defaultMeta - Default metadata object shared across all routes.
  *                      Route-specific metadata merges with these defaults.
+ * @param defaultContext - Baseline context cloned for each request.
  * @returns A new Application instance with the specified metadata type
  *
  * @example
@@ -415,19 +422,26 @@ export class Application {
  *   rateLimit: number;
  * }
  *
- * const app = createApp<AppMeta>({
- *   application: { maxRequestSize: '2MiB' },
- *   requiresAuth: false,
- *   rateLimit: 100,
- * });
+ * interface AppContext extends ContextMeta {
+ *   requestId: string;
+ * }
+ *
+ * const app = createApp<AppMeta, AppContext>(
+ *   {
+ *     application: { maxRequestSize: '2MiB' },
+ *     requiresAuth: false,
+ *     rateLimit: 100,
+ *   },
+ *   { requestId: '' },
+ * );
  *
  * app.get('/public', {}, async (req, res) => {
  *   res.json({ auth: req.endpointMeta.requiresAuth });
  * });
  * ```
  */
-export function createApp(defaultMeta) {
-    return new Application(defaultMeta);
+export function createApp(defaultMeta, defaultContext) {
+    return new Application(defaultMeta, defaultContext);
 }
 export class RouteContext {
     constructor(app, ...basesAndMetas) {

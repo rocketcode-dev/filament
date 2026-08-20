@@ -8,7 +8,7 @@ const defaultMeta = {
     tags: [],
 };
 // Create application with typed metadata
-const app = createApp(defaultMeta);
+const app = createApp(defaultMeta, {});
 // Authentication middleware - inspects endpointMeta
 app.use(async (req, res) => {
     if (req.endpointMeta.requiresAuth) {

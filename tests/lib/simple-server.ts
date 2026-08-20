@@ -44,7 +44,7 @@ export async function oneTimeServer(
 ): Promise<OneTimeServer> {
   const app = createApp<FrameworkMeta>({
     application: { maxRequestSize: '2MiB' },
-  });
+  }, {});
 
   const responseDeferred = deferred<Response>();
   const finishedDeferred = deferred<void>();

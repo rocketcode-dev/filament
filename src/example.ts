@@ -22,7 +22,7 @@ const defaultMeta: AppMeta = {
 };
 
 // Create application with typed metadata
-const app = createApp<AppMeta>(defaultMeta);
+const app = createApp<AppMeta>(defaultMeta, {});
 
 // Authentication middleware - inspects endpointMeta
 app.use(async (req, res) => {

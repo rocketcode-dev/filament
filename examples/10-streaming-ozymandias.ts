@@ -32,7 +32,7 @@ const lines = [
 
 const app = createApp<FrameworkMeta>({
   application: { maxRequestSize: '2MiB' },
-});
+}, {});
 
 // Streaming endpoint: lock the response into streaming mode before headers or
 // body data are sent, then await every chunk so native backpressure is honored.

@@ -1,5 +1,5 @@
 import { parseArgs } from 'node:util';
-import { createApp, FrameworkMeta } from '../src/index.js';
+import { ContextMeta, createApp, FrameworkMeta } from '../src/index.js';
 import {
   AccessToken,
   activeToken,
@@ -16,9 +16,11 @@ const port = Number(values.port ?? 0);
 const silent = values.silent ?? false;
 
 interface OAuthMeta extends FrameworkMeta { requiredScope?: string }
-const app = createApp<OAuthMeta>({
-  application: { maxRequestSize: '2MiB' },
-});
+interface OAuthContext extends ContextMeta { accessToken?: AccessToken }
+const app = createApp<OAuthMeta, OAuthContext>(
+  { application: { maxRequestSize: '2MiB' } },
+  {},
+);
 const tokens = new Map<string, AccessToken>();
 const clients = new Map([
   ['analysis-worker', { secret: 'analysis-secret', scopes: ['text:analyze'] }],
