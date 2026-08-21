@@ -5,6 +5,8 @@ interface ResponseEvents {
     send: [data: Buffer, length: number];
     sendChunk: [data: Buffer, length: number];
     end: [];
+    /** Emitted synchronously when the status and headers become immutable. */
+    headers: [];
 }
 export interface ResponseContext {
     hasTransformers?: boolean;

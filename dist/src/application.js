@@ -5,6 +5,7 @@ import { Response } from './response.js';
 import { pathToRegex, matchPath } from './router.js';
 import { HttpError } from './errors.js';
 import { deepMerge, normalizeByteSize } from './tools.js';
+import { RequestIdFactory, registeredPolicyName, RequestObserver, requestOrigin, routePolicyName, } from './observability.js';
 /**
  * Main Application class for Filament.
  *
@@ -137,9 +138,14 @@ export class Application {
     /**
      * Execute middleware chain
      */
-    async executeMiddlewareChain(req, res, middlewares) {
-        for (const middleware of middlewares) {
-            await middleware(req, res);
+    async executeMiddlewareChain(req, res, middlewares, observer) {
+        for (const [index, middleware] of middlewares.entries()) {
+            try {
+                await middleware(req, res);
+            }
+            finally {
+                observer.policyEnded('middleware', registeredPolicyName(middleware, 'middleware', index), res);
+            }
             if (res.closed)
                 return false;
         }
@@ -148,33 +154,38 @@ export class Application {
     /**
      * Execute error handlers
      */
-    async executeErrorHandlers(err, req, res) {
+    async executeErrorHandlers(err, req, res, observer) {
         const responseHasEscaped = () => res.committed || res.headers.frozen;
         const logLateError = (error) => {
             console.error('Error after response started:', error);
         };
         const defaultHandler = async (error) => {
-            // Once headers have escaped, the status and body can no longer be
-            // replaced. Preserve the response and make the late failure observable.
-            if (responseHasEscaped()) {
-                logLateError(error);
-                return;
+            try {
+                // Once headers have escaped, the status and body can no longer be
+                // replaced. Preserve the response and make the late failure observable.
+                if (responseHasEscaped()) {
+                    logLateError(error);
+                    return;
+                }
+                const statusCode = error instanceof HttpError ? error.statusCode : 500;
+                const message = statusCode < 500
+                    ? error.message
+                    : 'Internal Server Error';
+                res.status(statusCode);
+                res.headers.set('Content-Type', 'application/json');
+                res.body = JSON.stringify({ error: message });
+                await res.end();
             }
-            const statusCode = error instanceof HttpError ? error.statusCode : 500;
-            const message = statusCode < 500
-                ? error.message
-                : 'Internal Server Error';
-            res.status(statusCode);
-            res.headers.set('Content-Type', 'application/json');
-            res.body = JSON.stringify({ error: message });
-            await res.end();
+            finally {
+                observer.policyEnded('error', 'default', res);
+            }
         };
         let currentError = err;
         if (responseHasEscaped()) {
             logLateError(currentError);
             return;
         }
-        for (const handler of this.errorHandlers) {
+        for (const [index, handler] of this.errorHandlers.entries()) {
             let replacementThrown = false;
             try {
                 await handler(currentError, req, res);
@@ -184,6 +195,9 @@ export class Application {
                     ? caught
                     : new Error(String(caught));
                 replacementThrown = true;
+            }
+            finally {
+                observer.policyEnded('error', registeredPolicyName(handler, 'error', index), res);
             }
             if (responseHasEscaped()) {
                 if (replacementThrown) {
@@ -201,16 +215,16 @@ export class Application {
     /**
      * Execute response transformers
      */
-    async executeTransformers(req, res) {
-        for (const transformer of this.transformers) {
+    async executeTransformers(req, res, observer) {
+        for (const [index, transformer] of this.transformers.entries()) {
             if (res.committed) {
                 break;
             }
             try {
                 await transformer(req, res);
             }
-            catch (err) {
-                throw err;
+            finally {
+                observer.policyEnded('transformer', registeredPolicyName(transformer, 'transformer', index), res);
             }
         }
     }
@@ -256,12 +270,15 @@ export class Application {
      * Handle incoming HTTP request
      */
     async handleRequest(nodeReq, nodeRes) {
+        const startTime = Date.now();
         const method = (nodeReq.method || 'GET').toUpperCase();
         let path = nodeReq.url?.split('?', 1)[0] || '/';
         const query = {};
         let requestTargetError;
+        let parsedUrl;
+        const origin = requestOrigin(nodeReq);
         try {
-            const url = new URL(nodeReq.url || '/', `http://${nodeReq.headers.host || 'localhost'}`);
+            const url = parsedUrl = new URL(nodeReq.url || '/', `http://${nodeReq.headers.host || 'localhost'}`);
             path = url.pathname;
             // Parse query parameters
             url.searchParams.forEach((value, key) => {
@@ -296,10 +313,11 @@ export class Application {
             headers: new Headers('request', headers),
             context: deepMerge(this.defaultContext),
             endpointMeta: this.defaultMeta,
-            _startTime: Date.now(),
+            _startTime: startTime,
         };
         // Create response object
         const res = new Response(nodeRes, { hasTransformers: !!this.transformers.length });
+        const observer = new RequestObserver(req, this.requestIdFactory, startTime);
         try {
             if (requestTargetError)
                 throw requestTargetError;
@@ -323,32 +341,44 @@ export class Application {
                 params,
                 endpointMeta: matchedRoute.meta,
             };
+            observer.configure(matchedRoute.meta.application.observability, origin, parsedUrl?.search ?? '', res);
             // Buffer request bodies for methods supported by the current API.
             if (['POST', 'PUT', 'PATCH'].includes(method)) {
                 req.body = await this.readRequestBody(nodeReq, matchedRoute.meta.application.maxRequestSize);
+                observer.captureRequestBody(req.body);
             }
+            observer.finishSystem(res);
             // Execute middleware chain
-            const shouldContinue = await this.executeMiddlewareChain(req, res, this.middlewares);
+            const shouldContinue = await this.executeMiddlewareChain(req, res, this.middlewares, observer);
             if (shouldContinue) {
-                await matchedRoute.handler(req, res);
+                try {
+                    await matchedRoute.handler(req, res);
+                }
+                finally {
+                    observer.policyEnded('route', routePolicyName(matchedRoute.handler, method, matchedRoute.path), res);
+                }
                 // The application owns the route boundary: it supplies an implicit end
                 // when needed, transforms buffered route responses, and commits them.
                 // Responses closed by middleware never reach this block.
                 await res.end();
                 if (!res.streaming && !res.committed) {
-                    await this.executeTransformers(req, res);
+                    await this.executeTransformers(req, res, observer);
                 }
             }
             // make sure the response is over.
             await res.commit();
         }
         catch (caught) {
+            if (!observer.isConfigured) {
+                observer.configure(this.defaultMeta.application.observability, origin, parsedUrl?.search ?? '', res);
+            }
+            observer.finishSystem(res);
             const err = caught instanceof URIError
                 ? new HttpError(400, 'Bad Request')
                 : caught instanceof Error
                     ? caught
                     : new Error(String(caught));
-            await this.executeErrorHandlers(err, req, res);
+            await this.executeErrorHandlers(err, req, res, observer);
         }
         finally {
             // Finalization starts by closing and committing the response. Finalizers
@@ -358,6 +388,7 @@ export class Application {
                 await res.commit();
             }
             finally {
+                observer.prepareForFinalizers(res);
                 await this.executeFinalizers(req, res);
             }
         }
@@ -367,6 +398,9 @@ export class Application {
      * the new server
      */
     async listen(port) {
+        // One identifier namespace is shared by every request for this
+        // application's server lifetime, including a close/listen cycle.
+        this.requestIdFactory ?? (this.requestIdFactory = new RequestIdFactory(process.env.POD_NAME));
         return new Promise((resolve, reject) => {
             const server = http.createServer((req, res) => {
                 this.handleRequest(req, res).catch((err) => {

@@ -3,30 +3,43 @@
  */
 import Headers from "./headers.js";
 import Response from './response.js';
-interface ObservabilityForStatus {
-    origin?: boolean;
-    method?: boolean;
-    path?: boolean;
-    search?: boolean;
-    statusCode?: boolean;
-    trace?: boolean;
-    statusText?: boolean;
-    requestHeaders?: boolean;
-    requestBody?: boolean;
-    responseHeaders?: boolean;
-    responseBody?: boolean;
+interface BooleanObservabilityForStatus<B> {
+    /** Included by default when observability is enabled. */
+    origin?: B;
+    /** Included by default when observability is enabled. */
+    method?: B;
+    /** Included by default when observability is enabled. */
+    path?: B;
+    /** Included by default when observability is enabled. */
+    search?: B;
+    /** Included by default when observability is enabled. */
+    statusCode?: B;
+    /** Included by default when observability is enabled. */
+    trace?: B;
+    /** Excluded by default. */
+    statusText?: B;
+    /** Excluded by default. */
+    requestHeaders?: B;
+    /** Excluded by default. */
+    requestBody?: B;
+    /** Excluded by default. */
+    responseHeaders?: B;
+    /** Excluded by default. */
+    responseBody?: B;
 }
+export type ObservabilityForStatus = BooleanObservabilityForStatus<boolean>;
+export type NegativeObservabilityForStatus = BooleanObservabilityForStatus<false>;
 /**
  * Indicates what type of policy introduced this latency. `system` is the time
  * between receiving the headers of the request and starting the first
  * middleware or error policy.
  */
-type PolicyTypeEnum = 'system' | 'middleware' | 'route' | 'transformer' | 'error' | 'finalizer';
+export type PolicyType = 'system' | 'middleware' | 'route' | 'transformer' | 'error' | 'finalizer';
 /**
  * Indicates the status of the transaction at the time the policy ended.
- * - `new` means the response hasn't be created yet
+ * - `new` means the response hasn't been created yet
  * - `open` means headers and status code can still change
- * - `headers` means the headers heave been sent and can no longer be changed.
+ * - `headers` means the headers have been sent and can no longer be changed.
  *    This is only possible in streaming mode.
  * - `closed` means the response is closed and middlewares and routes can no
  *    longer operate. In streaming mode, it is also no longer possible to send
@@ -34,50 +47,69 @@ type PolicyTypeEnum = 'system' | 'middleware' | 'route' | 'transformer' | 'error
  *    and headers can still be changed by the transformers.
  * - `committed` means the response is out and nothing can change.
  */
-type EndStatusEnum = 'new' | 'open' | 'headers' | 'closed' | 'committed';
+export type ResponseEndStatus = 'new' | 'open' | 'headers' | 'closed' | 'committed';
 /**
  * How the response data is handled. In streaming mode, response data chunks go
  * out as soon as they are sent and they are never stored. In buffered mode,
  * the data is held until the transforms are complete, then it all goes out as
  * a unit.
  */
-type ModeEnum = 'buffered' | 'streaming';
-interface ObservedInfo {
+export type ResponseMode = 'buffered' | 'streaming';
+export interface ObservedTraceEntry {
+    type: PolicyType;
     /**
-     * Global transaction ID.
+     * A registered function name when available, otherwise a stable lifecycle
+     * label such as `middleware[0]` or `GET /users/:id`.
      */
-    gitd: string;
+    name?: string;
+    endTime: number;
+    endStatus: ResponseEndStatus;
+    mode?: ResponseMode;
+}
+export interface ObservedRequestInfo {
+    /** Originating client IP, preferring Forwarded/X-Forwarded-For/X-Real-IP. */
+    origin?: string;
+    method?: HttpMethod;
+    path?: string;
+    search?: string;
+    headers?: Record<string, string | string[]>;
+    body?: string;
+}
+export interface ObservedResponseInfo {
+    statusCode?: number;
+    statusText?: string;
+    headers?: Record<string, string | string[]>;
+    body?: string;
+}
+export interface ObservedInfo {
+    /**
+     * Globally sortable transaction ID.
+     */
+    requestId: string;
     /**
      * Time the transaction started, expressed as millis since the epoch
      */
     startTime: number;
-    responseInfo: {
-        statusCode?: number;
-        statusText?: string;
-        headers?: string;
-        body?: string;
-    };
-    requestInfo: {
-        origin?: string;
-        method?: HttpMethod;
-        path?: string;
-        search?: string;
-        headers?: string[];
-        body?: string[];
-    };
-    trace?: {
-        type: PolicyTypeEnum;
-        name?: string;
-        endtime: number;
-        endStatus: EndStatusEnum;
-        mode?: ModeEnum;
-    }[];
+    requestInfo?: ObservedRequestInfo;
+    responseInfo?: ObservedResponseInfo;
+    trace?: ObservedTraceEntry[];
 }
-interface Observability {
-    enabled: boolean;
+export interface Observability {
+    /** Defaults to false. */
+    enabled?: boolean;
+    /** Uses the documented per-field defaults when omitted. */
     success?: ObservabilityForStatus;
+    /** Defaults to the effective success settings. */
     failure?: ObservabilityForStatus;
-    [key: number]: ObservabilityForStatus;
+    /** Settings for an exact HTTP status code override its outcome settings. */
+    [statusCode: number]: ObservabilityForStatus | undefined;
+}
+export interface NegativeObservability {
+    /** Setting this to false stops all further collection for the request. */
+    enabled?: false;
+    success?: NegativeObservabilityForStatus;
+    failure?: NegativeObservabilityForStatus;
+    [statusCode: number]: NegativeObservabilityForStatus | undefined;
 }
 /**
  * Base interface for context metadata. Extend this interface to add custom
@@ -92,7 +124,10 @@ interface Observability {
  */
 export interface ContextMeta {
     application?: {
-        observability?: Observability;
+        /**
+         * This can be used to disable observability as the request progresses
+         */
+        observability?: NegativeObservability;
         observed?: ObservedInfo;
     };
 }

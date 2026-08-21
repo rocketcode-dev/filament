@@ -339,6 +339,7 @@ export class Response extends EventEmitter {
         if (!this.headers.frozen) {
             this.headers.frozen = true;
         }
+        this.emit('headers');
     }
     /**
      * Set the HTTP response status code.

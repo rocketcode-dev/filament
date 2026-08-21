@@ -18,6 +18,17 @@ export type {
   ErrorHandler,
   Finalizer,
   ResponseTransformer,
+  Observability,
+  ObservabilityForStatus,
+  NegativeObservability,
+  NegativeObservabilityForStatus,
+  ObservedInfo,
+  ObservedRequestInfo,
+  ObservedResponseInfo,
+  ObservedTraceEntry,
+  PolicyType,
+  ResponseEndStatus,
+  ResponseMode,
 } from './types.js';
 
 export { Response } from './response.js';

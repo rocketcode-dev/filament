@@ -4,6 +4,8 @@ This is generated from an AI code review, and items will be removed as they are 
 
 ## Design Decisions and compromises
 
+These are my responses to AI review
+
 | Area | Decision / outcome |
 | --- | --- |
 | Middleware scope | Application-wide middleware is intentional. There will be no path-scoped middleware; middleware examines immutable `endpointMeta` and bows out when its policy does not apply. |

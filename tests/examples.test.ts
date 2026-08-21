@@ -482,19 +482,34 @@ suite('Documented examples', () => {
     TestBattery.test('should trace service requests', async battery => {
       await withExample(examples.observability, async request => {
         const user = await request('/users/42', {
-          headers: { 'X-Trace-Id': 'incoming-trace-id' },
+          headers: { Forwarded: 'for=203.0.113.42;proto=https' },
         });
+        const userObservation = await request('/observations?limit=1');
         const analytics = await request('/analytics/events');
         const traces = await request('/traces?limit=1');
 
-        battery.test('incoming trace ID should be propagated')
-          .value(user.headers.get('x-trace-id')).value('incoming-trace-id').equal;
-        battery.test('response should include a span ID')
-          .value(user.headers.get('x-span-id')).is.not.nil;
+        battery.test('response should include the gathered request ID')
+          .value(/^\d{8}-\d{6}-\d{4}-[0-9a-z]{5}$/.test(
+            user.headers.get('x-request-id') ?? '',
+          )).is.true;
+        battery.test('exact 200 policy should prune user response details')
+          .value({
+            origin: userObservation.json?.observations?.[0]?.requestInfo?.origin,
+            body: userObservation.json?.observations?.[0]?.responseInfo?.body,
+            headers: userObservation.json?.observations?.[0]?.responseInfo?.headers,
+          })
+          .value({
+            origin: '203.0.113.42',
+            body: undefined,
+            headers: undefined,
+          }).deepEqual;
         battery.test('analytics endpoint should return events')
           .value(analytics.json?.events?.[0]?.type).value('page_view').equal;
         battery.test('traces endpoint should honor limit')
           .value(traces.json?.traces?.length).value(1).equal;
+        battery.test('trace should contain named policy steps')
+          .value(traces.json?.traces?.[0]?.trace
+            ?.some((entry: any) => entry.name === 'listEvents')).is.true;
       });
     });
 
@@ -510,7 +525,7 @@ suite('Documented examples', () => {
         battery.test('health should return healthy status')
           .value(health.json?.status).value('healthy').equal;
         battery.test('health should not include trace headers')
-          .value(health.headers.get('x-trace-id')).is.nil;
+          .value(health.headers.get('x-request-id')).is.nil;
       });
     });
 
@@ -521,12 +536,48 @@ suite('Documented examples', () => {
           cardNumber: '4111111111111111',
           cvv: '123',
         }));
+        const observations = await request('/observations?limit=1');
 
         battery.test('payment should succeed with the requested amount')
           .value({ status: payment.json?.status, amount: payment.json?.amount })
           .value({ status: 'success', amount: 49.95 }).deepEqual;
         battery.test('payment response should not expose card data')
           .value(payment.text.includes('4111111111111111')).is.false;
+        battery.test('successful payment observation should not retain bodies')
+          .value({
+            request: observations.json?.observations?.[0]?.requestInfo?.body,
+            response: observations.json?.observations?.[0]?.responseInfo?.body,
+          })
+          .value({ request: undefined, response: undefined }).deepEqual;
+      });
+    });
+
+    TestBattery.test('should let request context reduce observation', async battery => {
+      await withExample(examples.observability, async request => {
+        const retainedResponse = await request(
+          '/echo?message=visible&responseBody=true',
+        );
+        const retainedObservation = await request('/observations?limit=1');
+        const suppressedResponse = await request(
+          '/echo?message=private&responseBody=false',
+        );
+        const suppressedObservation = await request('/observations?limit=1');
+
+        battery.test('both echo requests should return their response bodies')
+          .value({
+            retained: retainedResponse.json?.echo,
+            suppressed: suppressedResponse.json?.echo,
+          })
+          .value({ retained: 'visible', suppressed: 'private' }).deepEqual;
+        battery.test('true should retain the observed response body')
+          .value(JSON.parse(
+            retainedObservation.json?.observations?.[0]?.responseInfo?.body,
+          ))
+          .value({ echo: 'visible', responseBody: true }).deepEqual;
+        battery.test('false should suppress the observed response body')
+          .value(
+            suppressedObservation.json?.observations?.[0]?.responseInfo?.body,
+          ).is.nil;
       });
     });
   }));

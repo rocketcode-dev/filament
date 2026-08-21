@@ -5,7 +5,9 @@ import EventEmitter from 'events';
 interface ResponseEvents {
   send: [data: Buffer, length: number],
   sendChunk: [data: Buffer, length: number],
-  end: []
+  end: [],
+  /** Emitted synchronously when the status and headers become immutable. */
+  headers: []
 }
 
 export interface ResponseContext {
@@ -388,6 +390,7 @@ export class Response extends EventEmitter<ResponseEvents> {
     if (!this.headers.frozen) {
       this.headers.frozen = true;
     }
+    this.emit('headers');
   }
 
   /**

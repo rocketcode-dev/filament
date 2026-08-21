@@ -27,6 +27,12 @@ Every section contains its own source-level command. Servers accept `--port 0`
 to choose an available port automatically and `--silent` for test harnesses.
 The OAuth examples use two terminals: one for the server and one for its client.
 
+Every server example keeps its friendly startup summary in the `app.listen`
+callback. The summary starts with the example name and listening URL, lists each
+endpoint with its method and purpose, includes useful credentials or commands
+under a separate heading when appropriate, and ends with a blank line. New
+server examples should retain this format and respect `--silent`.
+
 ## 1. Blog API
 
 Source: `01-blog-api.ts`
@@ -181,32 +187,36 @@ Source: `04-observability.ts`
 npx tsx examples/04-observability.ts --port 3004
 ```
 
-**Concepts:** Distributed tracing, metrics, structured logging
+**Concepts:** Outcome-aware data gathering, sortable request IDs, policy timing
 
-**Middlewares:**
+**Collection:**
 
-- Tracing middleware samples requests and propagates or generates trace/span
-  identifiers.
-- Metrics middleware records the start time; the finalizer measures completion
-  and records the configured dimensions.
-- Logging middleware emits structured or human-readable request-start events.
-- A finalizer completes traces and logs request completion.
+- Filament creates a sortable request ID and start time for every request.
+- Success, failure, and exact-status settings select request/response fields.
+- Named middleware and handlers appear in the policy trace.
+- A finalizer demonstrates one possible consumer by retaining observations in
+  memory and deriving simple counters. Reporting remains application-owned.
 
 **Endpoints:**
 
-- `GET /users/:id` - User service with full tracing.
-- `POST /payments` - Payment service with sampling and sensitive fields.
-- `GET /analytics/events` - Analytics service with debug logging.
-- `GET /health` - Health check without tracing.
+- `GET /users/:id` - Trace a user request without response headers or body.
+- `POST /payments` - Suppress successful payment request/response bodies.
+- `GET /analytics/events` - Retain request headers for an analytics request.
+- `GET /echo?responseBody=true|false` - Use request context to retain or
+  suppress the observed response body.
+- `GET /health` - Health check with observation disabled.
 - `GET /metrics` - Inspect collected metrics.
 - `GET /traces?limit=10` - Inspect recent traces.
+- `GET /observations?limit=10` - Inspect the gathered `ObservedInfo` records.
 
 **Key Pattern:**
 
 ```typescript
 app.get('/users/:id', {
-  trace: { enabled: true, sampleRate: 1 },
-  metrics: { enabled: true, dimensions: ['service', 'endpoint'] },
+  application: {
+    maxRequestSize: '2MiB',
+    observability: { enabled: true, success: { responseHeaders: true } },
+  },
   service: 'user-service',
 }, handler);
 ```
@@ -214,9 +224,12 @@ app.get('/users/:id', {
 **Try it:**
 
 ```bash
-curl -i -H 'X-Trace-Id: demo-trace' http://127.0.0.1:3004/users/42
+curl -i http://127.0.0.1:3004/users/42
+curl 'http://127.0.0.1:3004/echo?message=hello&responseBody=true'
+curl 'http://127.0.0.1:3004/echo?message=secret&responseBody=false'
 curl http://127.0.0.1:3004/metrics
 curl 'http://127.0.0.1:3004/traces?limit=5'
+curl 'http://127.0.0.1:3004/observations?limit=5'
 ```
 
 ---

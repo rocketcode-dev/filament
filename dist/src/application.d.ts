@@ -40,6 +40,7 @@ export declare class Application<T extends FrameworkMeta, C extends ContextMeta 
     private defaultMeta;
     private defaultContext;
     private server?;
+    private requestIdFactory?;
     constructor(defaultMeta: T, defaultContext: C);
     /**
      * Register a route. Supports multiple paths, metadata, and a single handler.
