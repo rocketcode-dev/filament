@@ -1,3 +1,5 @@
+import http from 'node:http';
+import https from 'node:https';
 import { FrameworkMeta, ContextMeta, HttpMethod, AsyncRequestHandler, ErrorHandler, Finalizer, ResponseTransformer } from './types.js';
 /**
  * Main Application class for Filament.
@@ -100,7 +102,12 @@ export declare class Application<T extends FrameworkMeta, C extends ContextMeta 
      * Start the server. Returns a promise that resolves with the port number of
      * the new server
      */
-    listen(port: number): Promise<number>;
+    listen(// assumes http on all IP addresses
+    port: number, options?: http.ServerOptions): Promise<number>;
+    listen(protocol: 'http', port: number, options?: http.ServerOptions): Promise<number>;
+    listen(protocol: 'http', ip: string, port: number, options?: http.ServerOptions): Promise<number>;
+    listen(protocol: 'https', port: number, options?: https.ServerOptions): Promise<number>;
+    listen(protocol: 'https', ip: string, port: number, options?: https.ServerOptions): Promise<number>;
     /**
      * Stop the server
      */

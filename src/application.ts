@@ -1,4 +1,6 @@
-import http from 'http';
+import http from 'node:http';
+import https from 'node:https';
+import tls from 'node:tls'
 import { URL } from 'url';
 import {
   FrameworkMeta,
@@ -522,12 +524,67 @@ export class Application<
    * Start the server. Returns a promise that resolves with the port number of
    * the new server
    */
-  async listen(port: number): Promise<number> {
+  async listen( // assumes http on all IP addresses
+    port: number,
+    options?: http.ServerOptions
+  ): Promise<number>;
+  async listen(
+    protocol: 'http',
+    port: number,
+    options?: http.ServerOptions
+  ): Promise<number>;
+  async listen(
+    protocol: 'http',
+    ip: string,
+    port: number,
+    options?: http.ServerOptions
+  ): Promise<number>;
+  async listen(
+    protocol: 'https',
+    port: number,
+    options?: https.ServerOptions
+  ): Promise<number>;
+  async listen(
+    protocol: 'https',
+    ip: string,
+    port: number,
+    options?: https.ServerOptions
+  ): Promise<number>;
+  async listen(
+    protocol: 'http'|'https'|number,
+    ip?: string|number|http.ServerOptions|https.ServerOptions,
+    port?: number|http.ServerOptions|https.ServerOptions,
+    options?: http.ServerOptions|https.ServerOptions,
+  ): Promise<number> {
+
+    const parameters
+      :(undefined|string|number|http.ServerOptions|https.ServerOptions)[] =
+      [protocol, ip, port, options];
+    if (typeof protocol === 'number') {
+      parameters.unshift('http');
+    }
+    if (typeof parameters[1] !== 'string' && parameters[1] !== undefined) {
+      parameters.splice(1, 0, undefined);
+    }
+    parameters[3] ??= {};
+
+    protocol = parameters[0] as 'http'|'https';
+    ip = parameters[1] as string|undefined;
+    port = parameters[2] as number;
+    switch(protocol) {
+    case 'http':
+      options = parameters[3] as http.ServerOptions;
+      break;
+    case 'https':
+      options = parameters[3] as https.ServerOptions;
+      break;
+    }
+
     // One identifier namespace is shared by every request for this
     // application's server lifetime, including a close/listen cycle.
     this.requestIdFactory ??= new RequestIdFactory(process.env.POD_NAME);
     return new Promise((resolve, reject) => {
-      const server = http.createServer((req, res) => {
+      const listener: http.RequestListener = (req, res) => {
         this.handleRequest(req, res).catch((err) => {
           console.error('Unhandled error in request handler:', err);
           if (!res.headersSent) {
@@ -535,7 +592,17 @@ export class Application<
             res.end(JSON.stringify({ error: 'Internal Server Error' }));
           }
         });
-      });
+      }
+
+      let server!: http.Server|https.Server;
+      switch(protocol) {
+      case 'http':
+        server = http.createServer(options as http.ServerOptions, listener);
+        break;
+      case 'https':
+        server = https.createServer(options as https.ServerOptions, listener);
+        break;
+      }
 
       server.on('error', (err: NodeJS.ErrnoException) => {
         if (err.code === 'EADDRINUSE') {
@@ -547,7 +614,7 @@ export class Application<
         }
       });
 
-      server.listen(port, () => {
+      const listenListener = () => {
         const address = server.address();
         if (address) {
           if (typeof address === 'string') {
@@ -558,7 +625,15 @@ export class Application<
         } else {
           reject(new Error('Failed to get server port'))
         }
-      });
+      };
+
+      console.log(JSON.stringify({port, ip, protocol}));
+
+      if (ip) {
+        server.listen(port, ip, listenListener);
+      } else {
+        server.listen(port, listenListener);
+      }
 
       this.server = server;
     });

@@ -16,6 +16,7 @@ These are my responses to AI review
 | Finalizers | Finalization starts by closing and committing the response, then finalizers always run. One failing finalizer is logged and does not prevent later finalizers or alter the response. |
 | Wrong method | Do not return 405 Method not Allowed with `Allow` headers. A future feature can support it but only if specifically enabled -- keep it both simple and secure by default. |
 | Request body | Filament handles streaming responses but not inputs. Mulipart handling will not be part of the core framework, just pass the body through for a middleware to handle. |
+| Listener IP | I changed listener to accept IP as a paremeter and all the http(s) options/ |
 
 ## Remaining action items
 
@@ -23,8 +24,6 @@ These are my responses to AI review
 
 These items have been triaged and are ready for implementation
 
-1. Configurable listen address
-   listen() still accepts only a port. Adding an optional host/interface binding remains deferred. This matters for explicitly binding to loopback, IPv6, containers, or a selected network interface.
 1. HTTP method semantics
     - HEAD requests, when not already implemented, should use the GET but suppress the body
     - Currently a request to a valid path but the wrong method will result in a 404. For now we will keep it that way, but as a future feature, we can set a FrameworkMeta property to enable 405 messages with generated Allow headers. For now, we'll keep it simple and secure by default.

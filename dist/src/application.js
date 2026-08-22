@@ -1,4 +1,5 @@
-import http from 'http';
+import http from 'node:http';
+import https from 'node:https';
 import { URL } from 'url';
 import { Headers, } from './types.js';
 import { Response } from './response.js';
@@ -393,16 +394,31 @@ export class Application {
             }
         }
     }
-    /**
-     * Start the server. Returns a promise that resolves with the port number of
-     * the new server
-     */
-    async listen(port) {
+    async listen(protocol, ip, port, options) {
+        const parameters = [protocol, ip, port, options];
+        if (typeof protocol === 'number') {
+            parameters.unshift('http');
+        }
+        if (typeof parameters[1] !== 'string' && parameters[1] !== undefined) {
+            parameters.splice(1, 0, undefined);
+        }
+        parameters[3] ?? (parameters[3] = {});
+        protocol = parameters[0];
+        ip = parameters[1];
+        port = parameters[2];
+        switch (protocol) {
+            case 'http':
+                options = parameters[3];
+                break;
+            case 'https':
+                options = parameters[3];
+                break;
+        }
         // One identifier namespace is shared by every request for this
         // application's server lifetime, including a close/listen cycle.
         this.requestIdFactory ?? (this.requestIdFactory = new RequestIdFactory(process.env.POD_NAME));
         return new Promise((resolve, reject) => {
-            const server = http.createServer((req, res) => {
+            const listener = (req, res) => {
                 this.handleRequest(req, res).catch((err) => {
                     console.error('Unhandled error in request handler:', err);
                     if (!res.headersSent) {
@@ -410,7 +426,16 @@ export class Application {
                         res.end(JSON.stringify({ error: 'Internal Server Error' }));
                     }
                 });
-            });
+            };
+            let server;
+            switch (protocol) {
+                case 'http':
+                    server = http.createServer(options, listener);
+                    break;
+                case 'https':
+                    server = https.createServer(options, listener);
+                    break;
+            }
             server.on('error', (err) => {
                 if (err.code === 'EADDRINUSE') {
                     reject(new Error(`Port ${port} is already in use`));
@@ -422,7 +447,7 @@ export class Application {
                     reject(new Error(`Failed to start server on port ${port}: ${err.message}`));
                 }
             });
-            server.listen(port, () => {
+            const listenListener = () => {
                 const address = server.address();
                 if (address) {
                     if (typeof address === 'string') {
@@ -435,7 +460,14 @@ export class Application {
                 else {
                     reject(new Error('Failed to get server port'));
                 }
-            });
+            };
+            console.log(JSON.stringify({ port, ip, protocol }));
+            if (ip) {
+                server.listen(port, ip, listenListener);
+            }
+            else {
+                server.listen(port, listenListener);
+            }
             this.server = server;
         });
     }
