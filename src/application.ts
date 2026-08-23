@@ -17,7 +17,7 @@ import {
 import { Response } from './response.js';
 import { pathToRegex, matchPath } from './router.js';
 import { HttpError } from './errors.js';
-import { deepMerge, normalizeByteSize } from './tools.js';
+import { assertJsonLike, deepMerge, normalizeByteSize } from './tools.js';
 import {
   RequestIdFactory,
   registeredPolicyName,
@@ -123,6 +123,9 @@ export class Application<
    * Merge metadata into a new, normalized, deeply frozen object.
    */
   private mergeMeta(defaultMeta: T, ...sources: Partial<T>[]): T {
+    assertJsonLike(defaultMeta);
+    for (const source of sources) assertJsonLike(source);
+
     const result = deepMerge(defaultMeta, ...sources);
     result.application.maxRequestSize = normalizeByteSize(
       result.application.maxRequestSize,

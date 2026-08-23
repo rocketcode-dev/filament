@@ -10,7 +10,7 @@ import { test, suite } from 'node:test';
 import TestBattery from 'test-battery';
 
 type SuiteEnum = 'all' | 'none' |
-  'blog'|'versioning'|'performance'|'observability'|'content-negotiation'|
+  'blog'|'performance'|'observability'|'content-negotiation'|
   'oauth'|'streaming'|'disconnect';
 const DO_SUITE: SuiteEnum = 'all';
 function doSuite(suiteName:SuiteEnum, suite:test.SuiteFn) {
@@ -48,7 +48,6 @@ interface ExampleResponse {
 
 const examples = {
   blog: { name: 'Blog API', source: 'examples/01-blog-api.ts' },
-  versioning: { name: 'API Versioning', source: 'examples/02-api-versioning.ts' },
   performance: { name: 'Performance Controls', source: 'examples/03-performance-controls.ts' },
   observability: { name: 'Observability', source: 'examples/04-observability.ts' },
   content: { name: 'Content Negotiation', source: 'examples/05-content-negotiation.ts' },
@@ -379,51 +378,6 @@ suite('Documented examples', () => {
     });
   }));
 
-  suite('API Versioning', doSuite('versioning', () => {
-    testCompilation(examples.versioning);
-
-    TestBattery.test('should serve deprecated v1 response formats', async battery => {
-      await withExample(examples.versioning, async request => {
-        const minimal = await request('/api/v1/user/123');
-        const profile = await request('/api/v1/user/123/profile');
-
-        battery.test('v1 should include version and deprecation headers')
-          .value({
-            version: minimal.headers.get('x-api-version'),
-            deprecated: minimal.headers.get('x-api-deprecated'),
-            sunset: minimal.headers.get('x-api-sunset'),
-          })
-          .value({ version: 'v1', deprecated: 'true', sunset: '2026-12-31' })
-          .deepEqual;
-        battery.test('minimal format should contain only basic fields')
-          .value(minimal.json)
-          .value({ id: 123, username: 'johndoe', email: 'john@example.com' })
-          .deepEqual;
-        battery.test('profile format should wrap the user')
-          .value(profile.json?.user?.name).value('John Doe').equal;
-      });
-    });
-
-    TestBattery.test('should serve current v2 response formats', async battery => {
-      await withExample(examples.versioning, async request => {
-        const standard = await request('/api/v2/user/123');
-        const detailed = await request('/api/v2/user/123/full');
-
-        battery.test('standard response should use v2 structure')
-          .value({
-            version: standard.headers.get('x-api-version'),
-            id: standard.json?.data?.id,
-            meta: standard.json?.meta?.version,
-          })
-          .value({ version: 'v2', id: 123, meta: 'v2' }).deepEqual;
-        battery.test('detailed response should include navigation links')
-          .value(detailed.json?.links)
-          .value({ self: '/api/v2/user/123/full', standard: '/api/v2/user/123' })
-          .deepEqual;
-      });
-    });
-  }));
-
   suite('Performance Controls', doSuite('performance', () => {
     testCompilation(examples.performance);
 
@@ -434,8 +388,6 @@ suite('Documented examples', () => {
 
         battery.test('products should use the documented limit')
           .value(first.headers.get('x-ratelimit-limit')).value('100').equal;
-        battery.test('products should be normal priority')
-          .value(first.headers.get('x-request-priority')).value('normal').equal;
         battery.test('first request should be a cache miss')
           .value(first.headers.get('x-cache')).value('MISS').equal;
         battery.test('second request should be a cache hit')
@@ -450,8 +402,6 @@ suite('Documented examples', () => {
         const order = await request('/orders', jsonRequest('POST', { items: ['widget'] }));
         const search = await request('/search?q=filament');
 
-        battery.test('orders should be high priority')
-          .value(order.headers.get('x-request-priority')).value('high').equal;
         battery.test('orders should accept request items')
           .value({ status: order.status, items: order.json?.items })
           .value({ status: 201, items: ['widget'] }).deepEqual;

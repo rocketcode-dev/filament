@@ -1,6 +1,6 @@
 # Project status
 
-This is generated from an AI code review, and items will be removed as they are addressed.
+This is partially generated from an AI code review, and items will be removed as they are addressed.
 
 ## Design Decisions and compromises
 
@@ -16,7 +16,9 @@ These are my responses to AI review
 | Finalizers | Finalization starts by closing and committing the response, then finalizers always run. One failing finalizer is logged and does not prevent later finalizers or alter the response. |
 | Wrong method | Do not return 405 Method not Allowed with `Allow` headers. A future feature can support it but only if specifically enabled -- keep it both simple and secure by default. |
 | Request body | Filament handles streaming responses but not inputs. Mulipart handling will not be part of the core framework, just pass the body through for a middleware to handle. |
-| Listener IP | I changed listener to accept IP as a paremeter and all the http(s) options/ |
+| Listener IP | I changed listener to accept IP as a paremeter and all the http(s) options. |
+| Versioning | FilamentJS will never support versioning. A new version should be a new app to avoid regressing established versions and creating unnecessary complexity. |
+| Metadata values | Endpoint metadata is restricted at registration time to finite JSON primitives, dense arrays, and plain data objects. This makes recursive freezing an honest immutability guarantee. |
 
 ## Remaining action items
 
@@ -34,15 +36,6 @@ These items have been triaged and are ready for implementation
 
 These items are either suggested by AI or brainstormed and have not been triaged
 
-1. More sophisticated request-body handling
-   Only needed if Filament moves toward large uploads or public-facing edge workloads:
-   - disconnect/cancellation awareness;
-   The current implementation is reasonable for bounded JSON/API payloads.
-1. Clarify special-object immutability
-   Cloning now supports Date, RegExp, Map, and Set, but JavaScript’s Object.freeze() does not make the internal state of Date, Map, or Set immutable. There are two honest choices:
-   - define endpoint metadata as JSON-like data—plain objects, arrays, and primitives; or
-   - provide stronger handling for mutable special objects.
-   I would favor explicitly defining metadata as JSON-like. It keeps equality, serialization, freezing, and mental models clean.
 
 ## What I think Filament’s main selling points are
 
@@ -106,6 +99,6 @@ That makes it attractive for developers who want structure without adopting a la
 
 ### Good fit for policy-heavy APIs
 
-The examples show the natural market well: APIs with authentication, RBAC, rate limiting, versioning, observability, content negotiation, and OAuth flows. Those are exactly the systems where metadata-driven middleware becomes more valuable than route-scoped middleware.
+The examples show the natural market well: APIs with authentication, RBAC, rate limiting, observability, content negotiation, and OAuth flows. Those are exactly the systems where metadata-driven middleware becomes more valuable than route-scoped middleware.
 
 I would lead the project messaging with typed metadata-driven policy, deterministic async execution, and immutable endpoint contracts. “Express-familiar” is useful reassurance, but not the differentiator. I would also soften “zero runtime overhead” to something like “small, predictable overhead”—the former is literally hard to defend when every global middleware still executes and inspects metadata.

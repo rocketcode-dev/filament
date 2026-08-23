@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import {
+  assertJsonLike,
   contextGet,
   deepMerge,
   normalizeByteSize,
@@ -13,6 +14,46 @@ import type {
 } from '../src/types.js';
 
 describe('tools', () => {
+  test('assertJsonLike accepts plain JSON-like data and shared references', () => {
+    const shared = { enabled: true };
+    assert.doesNotThrow(() => assertJsonLike({
+      string: 'value',
+      number: 1.5,
+      boolean: false,
+      nullable: null,
+      array: [shared, shared],
+      dictionary: Object.assign(Object.create(null), { key: 'value' }),
+    }));
+  });
+
+  test('assertJsonLike rejects values that cannot be made immutable', () => {
+    const circular: { self?: unknown } = {};
+    circular.self = circular;
+    const accessor = Object.defineProperty({}, 'value', {
+      enumerable: true,
+      get: () => 'value',
+    });
+    const sparse = Array(1);
+
+    for (const value of [
+      undefined,
+      1n,
+      Symbol('value'),
+      () => undefined,
+      NaN,
+      Infinity,
+      new Date(),
+      /value/,
+      new Map(),
+      new Set(),
+      circular,
+      accessor,
+      sparse,
+    ]) {
+      assert.throws(() => assertJsonLike(value), TypeError);
+    }
+  });
+
   test('contextGet reads context as an overlay on endpoint metadata', () => {
     interface LookupMeta extends FrameworkMeta {
       trace: {

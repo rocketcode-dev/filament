@@ -14,6 +14,18 @@ import type { ContextMeta, FrameworkMeta, Request } from './types.js';
  * ```
  */
 export declare function contextGet<T extends FrameworkMeta, C extends ContextMeta>(req: Pick<Request<T, C>, 'context' | 'endpointMeta'>, path: string): unknown;
+type JsonPrimitive = string | number | boolean | null;
+type JsonValue = JsonPrimitive | JsonValue[] | {
+    [key: string]: JsonValue;
+};
+/**
+ * Assert that a value consists only of data that can be deeply frozen:
+ * finite JSON primitives, dense arrays, and plain data objects.
+ *
+ * This is intentionally stricter than JSON.stringify(), which silently
+ * changes or omits several unsupported JavaScript values.
+ */
+export declare function assertJsonLike(value: unknown, path?: string, ancestors?: WeakSet<object>): asserts value is JsonValue;
 /**
  * Deeply clones default metadata, then merges zero or more sources into the
  * clone. Nested plain objects merge; arrays and other values replace.
@@ -33,4 +45,5 @@ export declare function normalizeByteSize(value: number | string): number;
  * compound field-name fragments.
  */
 export declare function normalizeHeaderName(name: string): string;
+export {};
 //# sourceMappingURL=tools.d.ts.map

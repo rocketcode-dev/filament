@@ -18,6 +18,18 @@ function createTestApp(meta) {
 }
 suite('Application', () => {
     suite('create application', () => {
+        TestBattery.test('should reject non-JSON-like metadata', (battery) => {
+            battery.test('special object in application defaults')
+                .value(errorMessage(() => createApp({
+                application: { maxRequestSize: 1024 },
+                createdAt: new Date(),
+            }, {})))
+                .value('metadata.createdAt contains unsupported Date').equal;
+            const app = createTestApp({ requiresAuth: false });
+            battery.test('special object in route metadata')
+                .value(errorMessage(() => app.get('/invalid-meta', { roles: new Set(['admin']) }, async (_req, res) => { await res.send('unreachable'); })))
+                .value('metadata.roles contains unsupported Set').equal;
+        });
         TestBattery.test('should create an application instance', (battery) => {
             const app = createTestApp({ requiresAuth: false });
             battery.test('should create Application instance')

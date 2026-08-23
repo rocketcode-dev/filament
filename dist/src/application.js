@@ -5,7 +5,7 @@ import { Headers, } from './types.js';
 import { Response } from './response.js';
 import { pathToRegex, matchPath } from './router.js';
 import { HttpError } from './errors.js';
-import { deepMerge, normalizeByteSize } from './tools.js';
+import { assertJsonLike, deepMerge, normalizeByteSize } from './tools.js';
 import { RequestIdFactory, registeredPolicyName, RequestObserver, requestOrigin, routePolicyName, } from './observability.js';
 /**
  * Main Application class for Filament.
@@ -92,6 +92,9 @@ export class Application {
      * Merge metadata into a new, normalized, deeply frozen object.
      */
     mergeMeta(defaultMeta, ...sources) {
+        assertJsonLike(defaultMeta);
+        for (const source of sources)
+            assertJsonLike(source);
         const result = deepMerge(defaultMeta, ...sources);
         result.application.maxRequestSize = normalizeByteSize(result.application.maxRequestSize);
         return deepMerge(result, true);

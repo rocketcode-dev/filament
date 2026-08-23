@@ -9,7 +9,6 @@ directly, so a separate build is unnecessary while exploring them.
 
 - [Running the examples](#running-the-examples)
 - [1. Blog API](#1-blog-api)
-- [2. API Versioning](#2-api-versioning)
 - [3. Performance Controls](#3-performance-controls)
 - [4. Observability](#4-observability)
 - [5. Content Negotiation](#5-content-negotiation)
@@ -80,51 +79,6 @@ curl -X POST -H 'Authorization: token-editor' \
   -H 'Content-Type: application/json' \
   -d '{"title":"New post","content":"Hello"}' \
   http://127.0.0.1:3001/posts
-```
-
----
-
-## 2. API Versioning
-
-Source: `02-api-versioning.ts`
-
-**Run:**
-
-```bash
-npx tsx examples/02-api-versioning.ts --port 3002
-```
-
-**Concepts:** Versioning, deprecation, response formats
-
-**Middlewares:**
-
-- Deprecation middleware adds warning and sunset headers to deprecated routes.
-- Version middleware publishes the selected API version on every response.
-- A response transformer selects cache policy and documentation links from
-  route metadata.
-- A finalizer reports use of deprecated endpoints.
-
-**Endpoints:**
-
-- `GET /api/v1/user/:id` - Minimal deprecated V1 representation.
-- `GET /api/v1/user/:id/profile` - Standard deprecated V1 profile.
-- `GET /api/v2/user/:id` - Structured current V2 representation.
-- `GET /api/v2/user/:id/full` - Detailed V2 representation with links.
-
-**Key Pattern:**
-
-```typescript
-app.get('/api/v1/user/:id',
-  { apiVersion: 'v1', deprecated: true, responseFormat: 'minimal' },
-  async (req, res) => { /* return the V1 representation */ },
-);
-```
-
-**Try it:**
-
-```bash
-curl -i http://127.0.0.1:3002/api/v1/user/123
-curl -i http://127.0.0.1:3002/api/v2/user/123/full
 ```
 
 ---

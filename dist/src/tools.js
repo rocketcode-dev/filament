@@ -42,6 +42,76 @@ function isPlainObject(value) {
     const prototype = Object.getPrototypeOf(value);
     return prototype === Object.prototype || prototype === null;
 }
+/**
+ * Assert that a value consists only of data that can be deeply frozen:
+ * finite JSON primitives, dense arrays, and plain data objects.
+ *
+ * This is intentionally stricter than JSON.stringify(), which silently
+ * changes or omits several unsupported JavaScript values.
+ */
+export function assertJsonLike(value, path = 'metadata', ancestors = new WeakSet()) {
+    if (value === null || typeof value === 'string' ||
+        typeof value === 'boolean') {
+        return;
+    }
+    if (typeof value === 'number') {
+        if (!Number.isFinite(value)) {
+            throw new TypeError(`${path} must contain only finite numbers`);
+        }
+        return;
+    }
+    if (!isObject(value)) {
+        throw new TypeError(`${path} contains unsupported ${typeof value}`);
+    }
+    if (ancestors.has(value)) {
+        throw new TypeError(`${path} contains a circular reference`);
+    }
+    ancestors.add(value);
+    try {
+        if (Array.isArray(value)) {
+            for (const key of Reflect.ownKeys(value)) {
+                if (key === 'length')
+                    continue;
+                if (typeof key !== 'string' || !/^(0|[1-9]\d*)$/.test(key) ||
+                    Number(key) >= value.length) {
+                    throw new TypeError(`${path} contains a non-index array property`);
+                }
+            }
+            for (let index = 0; index < value.length; index++) {
+                if (!Object.prototype.hasOwnProperty.call(value, index)) {
+                    throw new TypeError(`${path}[${index}] is a sparse array entry`);
+                }
+                assertDataProperty(value, String(index), `${path}[${index}]`);
+                assertJsonLike(value[index], `${path}[${index}]`, ancestors);
+            }
+            return;
+        }
+        if (!isPlainObject(value)) {
+            const name = Object.getPrototypeOf(value)?.constructor?.name ?? 'object';
+            throw new TypeError(`${path} contains unsupported ${name}`);
+        }
+        for (const key of Reflect.ownKeys(value)) {
+            if (typeof key !== 'string') {
+                throw new TypeError(`${path} contains a symbol key`);
+            }
+            const childPath = `${path}.${key}`;
+            assertDataProperty(value, key, childPath);
+            assertJsonLike(value[key], childPath, ancestors);
+        }
+    }
+    finally {
+        ancestors.delete(value);
+    }
+}
+function assertDataProperty(object, key, path) {
+    const descriptor = Object.getOwnPropertyDescriptor(object, key);
+    if (!descriptor || !('value' in descriptor)) {
+        throw new TypeError(`${path} must be a data property`);
+    }
+    if (!descriptor.enumerable) {
+        throw new TypeError(`${path} must be enumerable`);
+    }
+}
 function deepClone(value, seen = new WeakMap()) {
     if (!isObject(value))
         return value;

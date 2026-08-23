@@ -70,20 +70,11 @@ app.use(async (req, res) => {
     }
     res.headers.set('X-Cache', 'MISS');
 });
-// Priority queue middleware
-app.use(async (req, res) => {
-    const priority = req.endpointMeta.priority;
-    // Add priority header
-    res.headers.set('X-Request-Priority', priority);
-    // In real implementation, this would queue low-priority requests
-    if (priority === 'low') {
-        // Simulate slight delay for low priority
-        await new Promise(resolve => setTimeout(resolve, 100));
-    }
-});
 // Cature body for caching
-app.use(async (_req, res) => {
-    res.streaming = false;
+app.use(async (req, res) => {
+    if (req.endpointMeta.cache.enabled) {
+        res.streaming = false;
+    }
 });
 // Endpoints with different performance characteristics
 // High-frequency, cacheable endpoint
