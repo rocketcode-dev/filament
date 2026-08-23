@@ -12,7 +12,7 @@ const { values } = parseArgs({
 });
 const port = Number(values.port ?? 0);
 const interval = Number(values.interval ?? 500);
-const count = Number(values.count ?? 100);
+const count = Number(values.count ?? 20);
 const silent = values.silent ?? false;
 
 const app = createApp<FrameworkMeta>({
@@ -27,13 +27,17 @@ app.get('/ticks', async (_req, res) => {
   // Use the disconnect callback to cancel work that is not owned by the
   // response itself. Filament automatically suppresses later native writes.
   const cancellation = new AbortController();
-  res.onDisconnect(() => cancellation.abort());
+  res.onDisconnect(() => {
+    silent || console.log('disconnected');
+    cancellation.abort();
+  });
 
   try {
     for (let tick = 1; tick <= count; tick += 1) {
       if (tick > 1) {
         await delay(interval, undefined, { signal: cancellation.signal });
       }
+      silent || console.log('Sending tick', tick);
       await res.sendChunk(`tick ${tick}\n`);
     }
     await res.end();
