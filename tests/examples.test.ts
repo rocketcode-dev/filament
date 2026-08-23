@@ -11,7 +11,7 @@ import TestBattery from 'test-battery';
 
 type SuiteEnum = 'all' | 'none' |
   'blog'|'versioning'|'performance'|'observability'|'content-negotiation'|
-  'oauth'|'streaming';
+  'oauth'|'streaming'|'disconnect';
 const DO_SUITE: SuiteEnum = 'all';
 function doSuite(suiteName:SuiteEnum, suite:test.SuiteFn) {
   if (DO_SUITE === 'none') {
@@ -87,6 +87,10 @@ const examples = {
   streaming: {
     name: 'Streaming Ozymandias',
     source: 'examples/10-streaming-ozymandias.ts',
+  },
+  disconnect: {
+    name: 'Disconnect-aware stream',
+    source: 'examples/11-disconnect-aware-stream.ts',
   },
 } satisfies Record<string, Example>;
 
@@ -778,6 +782,10 @@ suite('Documented examples', () => {
           }).value({ lines: 14, opening: true, ending: true }).deepEqual;
       }, ['--interval', '10']);
     });
+  }));
+
+  suite('Disconnect-aware stream', doSuite('disconnect', () => {
+    testCompilation(examples.disconnect);
   }));
 });
 

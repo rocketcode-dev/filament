@@ -12,6 +12,8 @@ The stage that closes a response determines what Filament does next:
   runs transformers when it is buffered, and commits it.
 - Error-flow responses bypass transformers.
 - Finalizers always run for observation and cleanup.
+- A client disconnect closes the Filament response, suppresses further native
+  response I/O, and skips transformers; finalizers still run.
 
 ## Streaming and buffering
 
@@ -61,6 +63,18 @@ representation. Filament owns `commit()` during normal application processing.
 
 After commit, the body, status, and headers can no longer be changed. Repeated
 `end()` and `commit()` calls share their existing completion operations.
+
+## Client disconnects
+
+`res.onDisconnect(listener)` runs its listener once when the native connection
+closes before the response finishes. The `res.disconnected` flag is already
+`true` while the listener runs. A listener registered after the disconnect is
+invoked immediately, so route setup does not need a separate race check.
+
+Pending response writes settle when a disconnect is observed. Later `send()`,
+`json()`, `sendChunk()`, `end()`, and `commit()` calls settle without starting
+native I/O. Routes remain responsible for cancelling work outside the response,
+such as timers, database operations, and upstream streams.
 
 ## Finalizers
 

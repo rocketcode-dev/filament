@@ -1,4 +1,5 @@
 import { ServerResponse } from 'http';
+import EventEmitter from 'events';
 import { suite } from 'node:test';
 import TestBattery from 'test-battery';
 import { Response, type ResponseContext } from '../src/response.js';
@@ -6,12 +7,14 @@ import { Response, type ResponseContext } from '../src/response.js';
 type WriteCallback = (error?: Error | null) => void;
 type EndCallback = () => void;
 
-class ControlledServerResponse {
+class ControlledServerResponse extends EventEmitter {
   readonly writes: Buffer[] = [];
   readonly heads: Array<{ status: number, headers: string[] }> = [];
   readonly writeCallbacks: WriteCallback[] = [];
   readonly endCallbacks: EndCallback[] = [];
   endCalls = 0;
+  destroyed = false;
+  writableFinished = false;
 
   writeHead(status: number, headers: string[]): this {
     this.heads.push({ status, headers });
@@ -41,7 +44,13 @@ class ControlledServerResponse {
   finishEnd(): void {
     const callback = this.endCallbacks.shift();
     if (!callback) throw new Error('No pending end');
+    this.writableFinished = true;
     callback();
+  }
+
+  disconnect(): void {
+    this.destroyed = true;
+    this.emit('close');
   }
 }
 
@@ -210,6 +219,76 @@ suite('Response lifecycle timing', () => {
       battery.test('propagates the chunk failure and remains open')
         .value({ message, closed: res.closed })
         .value({ message: 'chunk failed', closed: false }).deepEqual;
+    });
+  });
+
+  suite('client disconnects', () => {
+    TestBattery.test('emits once and stops native response operations', async battery => {
+      const { native, res } = response(true);
+      let notifications = 0;
+      res.onDisconnect(() => {
+        notifications++;
+      });
+
+      const pendingChunk = res.sendChunk('started');
+      native.disconnect();
+      native.disconnect();
+      await pendingChunk;
+
+      await res.sendChunk('ignored chunk');
+      await res.json({ ignored: true });
+      await res.send('ignored response');
+      await res.end();
+      await res.commit();
+      res.onDisconnect(() => {
+        notifications++;
+      });
+
+      battery.test('records the disconnect and immediately notifies late listeners')
+        .value({ disconnected: res.disconnected, closed: res.closed, notifications })
+        .value({ disconnected: true, closed: true, notifications: 2 }).deepEqual;
+      battery.test('does not start more native writes or an end')
+        .value({
+          heads: native.heads.length,
+          writes: native.writes.map(write => write.toString()),
+          endCalls: native.endCalls,
+          committed: res.committed,
+        })
+        .value({
+          heads: 1,
+          writes: ['started'],
+          endCalls: 0,
+          committed: false,
+        }).deepEqual;
+    });
+
+    TestBattery.test('does not report a normal native close as a disconnect', battery => {
+      const { native, res } = response(true);
+      let notified = false;
+      res.onDisconnect(() => {
+        notified = true;
+      });
+
+      native.writableFinished = true;
+      native.emit('close');
+
+      battery.test('finished responses remain connected for lifecycle purposes')
+        .value({ disconnected: res.disconnected, notified })
+        .value({ disconnected: false, notified: false }).deepEqual;
+    });
+
+    TestBattery.test('does not end after a buffered write loses its client', async battery => {
+      const { native, res } = response(false);
+      await res.send('body');
+      const committed = res.commit();
+
+      native.disconnect();
+      await committed;
+      native.finishWrite();
+
+      battery.test('the completed write callback starts no later native operation')
+        .value({ endCalls: native.endCalls, committed: res.committed })
+        .value({ endCalls: 0, committed: false }).deepEqual;
     });
   });
 

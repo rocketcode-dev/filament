@@ -260,6 +260,7 @@ class Response {
   readonly headers: Headers;
   readonly closed: boolean;
   readonly committed: boolean;
+  readonly disconnected: boolean;
   streaming: boolean;
   get body(): Buffer | null;
   set body(content: string | Buffer);
@@ -267,6 +268,7 @@ class Response {
   json(data: unknown): Promise<void>;
   send(data: string | Buffer): Promise<void>;
   sendChunk(data: string | Buffer): Promise<void>;
+  onDisconnect(listener: () => void): Response;
   end(): Promise<void>;
   commit(): Promise<void>;
 }
@@ -281,6 +283,31 @@ replace the completed body. Set `res.streaming` before the first body operation
 to override that default. `send()` and `json()` close the response;
 `sendChunk()` leaves it open until `end()` is called. Filament normally calls
 `commit()` itself after route processing.
+
+### Client disconnects
+
+`res.onDisconnect()` registers a one-time callback for a client connection that
+closes before its response finishes. Use it to cancel work owned by the route,
+such as an upstream query, timer, or stream. `res.disconnected` is set before
+the callback runs and remains available to finalizers.
+
+```typescript
+app.get('/events', async (_req, res) => {
+  res.streaming = true;
+  const cancellation = new AbortController();
+  res.onDisconnect(() => cancellation.abort());
+
+  for await (const event of readEvents({ signal: cancellation.signal })) {
+    await res.sendChunk(JSON.stringify(event) + '\n');
+  }
+});
+```
+
+Once disconnected, `send()`, `json()`, `sendChunk()`, `end()`, and `commit()`
+settle without starting more native response I/O. Filament skips remaining
+middleware and response transformers, but finalizers still run. A disconnect
+does not automatically cancel arbitrary route work; the callback is where the
+route should stop its own producer.
 
 ## Request Lifecycle
 

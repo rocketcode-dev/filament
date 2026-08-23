@@ -223,7 +223,7 @@ export class Application<
     observer: RequestObserver<T, C>,
   ): Promise<void> {
     const responseHasEscaped = (): boolean =>
-      res.committed || res.headers.frozen;
+      res.disconnected || res.committed || res.headers.frozen;
     const logLateError = (error: Error): void => {
       console.error('Error after response started:', error);
     };
@@ -484,7 +484,7 @@ export class Application<
         // when needed, transforms buffered route responses, and commits them.
         // Responses closed by middleware never reach this block.
         await res.end();
-        if (!res.streaming && !res.committed) {
+        if (!res.disconnected && !res.streaming && !res.committed) {
           await this.executeTransformers(req, res, observer);
         }
       }
@@ -626,8 +626,6 @@ export class Application<
           reject(new Error('Failed to get server port'))
         }
       };
-
-      console.log(JSON.stringify({port, ip, protocol}));
 
       if (ip) {
         server.listen(port, ip, listenListener);

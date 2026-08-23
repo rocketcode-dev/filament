@@ -48,8 +48,21 @@ export class Response extends EventEmitter {
          * possible for anything. Stops transforms.
          */
         this._committed = false;
+        /** Set when the native response closes before it finishes. */
+        this._disconnected = false;
         this.context = context;
         this.serverResponse = serverResponse;
+        this._disconnectPromise = new Promise(resolve => {
+            this._resolveDisconnect = resolve;
+        });
+        this.serverResponse.once('close', () => {
+            if (!this.serverResponse.writableFinished) {
+                this.markDisconnected();
+            }
+        });
+        if (this.serverResponse.destroyed && !this.serverResponse.writableFinished) {
+            this.markDisconnected();
+        }
     }
     /**
      * Returns the body of the response as it stands at this moment. Only works
@@ -111,6 +124,23 @@ export class Response extends EventEmitter {
     get committed() {
         return this._committed;
     }
+    /** Whether the client disconnected before the response finished. */
+    get disconnected() {
+        return this._disconnected;
+    }
+    /**
+     * Run a callback once if the client disconnects before the response finishes.
+     * If the disconnect already happened, the callback runs immediately.
+     */
+    onDisconnect(listener) {
+        if (this.disconnected) {
+            listener();
+        }
+        else {
+            this.once('disconnect', listener);
+        }
+        return this;
+    }
     get headers() {
         return this._headers;
     }
@@ -155,6 +185,10 @@ export class Response extends EventEmitter {
      * any effect. Always called after the transformers are complete.
      */
     commit() {
+        if (this.disconnected) {
+            this._closed = true;
+            return this._commitPromise || (this._commitPromise = Promise.resolve());
+        }
         if (!this.closed) {
             throw new Error('Cannot commit an open response');
         }
@@ -163,16 +197,20 @@ export class Response extends EventEmitter {
         }
         if (this.streaming) {
             this._commitPromise = (this._endPromise || Promise.resolve()).then(() => {
-                this._committed = true;
+                if (!this.disconnected) {
+                    this._committed = true;
+                }
             });
             return this._commitPromise;
         }
         const b = this.body;
         this.sendHeadersIfNotSentAlready();
         this._body = null;
-        this._commitPromise = new Promise((resolve, reject) => {
+        const nativeCommit = new Promise((resolve, reject) => {
             const finish = () => {
-                this._committed = true;
+                if (!this.disconnected) {
+                    this._committed = true;
+                }
                 resolve();
             };
             if (b === null) {
@@ -183,12 +221,19 @@ export class Response extends EventEmitter {
                     if (err) {
                         reject(err);
                     }
+                    else if (this.disconnected) {
+                        resolve();
+                    }
                     else {
                         this.serverResponse.end(finish);
                     }
                 });
             }
         });
+        this._commitPromise = Promise.race([
+            nativeCommit,
+            this._disconnectPromise,
+        ]);
         return this._commitPromise;
     }
     /**
@@ -200,16 +245,26 @@ export class Response extends EventEmitter {
         if (this._endPromise) {
             return this._endPromise;
         }
+        if (this.disconnected) {
+            this._closed = true;
+            return this._endPromise = Promise.resolve();
+        }
         this.prepareToSendData(true);
         this.emit('end');
         this._closed = true;
         if (this.streaming) {
-            this._endPromise = new Promise((resolve) => {
+            const nativeEnd = new Promise((resolve) => {
                 this.serverResponse.end(() => {
-                    this._committed = true;
+                    if (!this.disconnected) {
+                        this._committed = true;
+                    }
                     resolve();
                 });
             });
+            this._endPromise = Promise.race([
+                nativeEnd,
+                this._disconnectPromise,
+            ]);
         }
         else {
             this._endPromise = Promise.resolve();
@@ -224,6 +279,9 @@ export class Response extends EventEmitter {
      * @throws Error if response has already been sent
      */
     json(data) {
+        if (this.disconnected) {
+            return Promise.resolve();
+        }
         if (this.closed) {
             throw new Error('Cannot send json after the response has been closed');
         }
@@ -269,6 +327,9 @@ export class Response extends EventEmitter {
      * @throws Error if response has already been sent
      */
     send(data) {
+        if (this.disconnected) {
+            return Promise.resolve();
+        }
         if (this.closed) {
             throw new Error('Cannot send data after the response has been closed');
         }
@@ -285,7 +346,7 @@ export class Response extends EventEmitter {
         this._closed = 'pending';
         this.emit('send', data, byteLength);
         if (this.streaming) {
-            return new Promise((resolve, reject) => {
+            const nativeWrite = new Promise((resolve, reject) => {
                 this.serverResponse.write(data, err => {
                     if (err) {
                         reject(err);
@@ -295,6 +356,7 @@ export class Response extends EventEmitter {
                     }
                 });
             });
+            return Promise.race([nativeWrite, this._disconnectPromise]);
         }
         else {
             (this._body || (this._body = [])).push(data);
@@ -307,7 +369,10 @@ export class Response extends EventEmitter {
      * @throws Error if the response has already been sent
      */
     sendChunk(data) {
-        return new Promise((resolve, reject) => {
+        if (this.disconnected) {
+            return Promise.resolve();
+        }
+        const nativeWrite = new Promise((resolve, reject) => {
             if (typeof data === 'string') {
                 data = Buffer.from(data);
             }
@@ -329,9 +394,10 @@ export class Response extends EventEmitter {
                 resolve();
             }
         });
+        return Promise.race([nativeWrite, this._disconnectPromise]);
     }
     sendHeadersIfNotSentAlready() {
-        if (this._headersSent) {
+        if (this._headersSent || this.disconnected) {
             return;
         }
         this.serverResponse.writeHead(this.statusCode, this.headers.headerPairs.flat());
@@ -340,6 +406,14 @@ export class Response extends EventEmitter {
             this.headers.frozen = true;
         }
         this.emit('headers');
+    }
+    markDisconnected() {
+        if (this._disconnected)
+            return;
+        this._disconnected = true;
+        this._closed = true;
+        this._resolveDisconnect();
+        this.emit('disconnect');
     }
     /**
      * Set the HTTP response status code.

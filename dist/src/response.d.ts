@@ -7,6 +7,8 @@ interface ResponseEvents {
     end: [];
     /** Emitted synchronously when the status and headers become immutable. */
     headers: [];
+    /** Emitted once when the client disconnects before the response finishes. */
+    disconnect: [];
 }
 export interface ResponseContext {
     hasTransformers?: boolean;
@@ -62,6 +64,11 @@ export declare class Response extends EventEmitter<ResponseEvents> {
      * possible for anything. Stops transforms.
      */
     private _committed;
+    /** Set when the native response closes before it finishes. */
+    private _disconnected;
+    /** Lets pending native operations settle promptly after a disconnect. */
+    private _disconnectPromise;
+    private _resolveDisconnect;
     /** The shared completion promises for idempotent lifecycle operations. */
     private _endPromise?;
     private _commitPromise?;
@@ -86,6 +93,13 @@ export declare class Response extends EventEmitter<ResponseEvents> {
      */
     set body(content: string | Buffer);
     get committed(): boolean;
+    /** Whether the client disconnected before the response finished. */
+    get disconnected(): boolean;
+    /**
+     * Run a callback once if the client disconnects before the response finishes.
+     * If the disconnect already happened, the callback runs immediately.
+     */
+    onDisconnect(listener: () => void): this;
     get headers(): Headers;
     get closed(): boolean;
     get statusCode(): number;
@@ -129,6 +143,7 @@ export declare class Response extends EventEmitter<ResponseEvents> {
      */
     sendChunk(data: string | Buffer): Promise<void>;
     private sendHeadersIfNotSentAlready;
+    private markDisconnected;
     /**
      * Set the HTTP response status code.
      *

@@ -65,6 +65,10 @@ const examples = {
         name: 'Streaming Ozymandias',
         source: 'examples/10-streaming-ozymandias.ts',
     },
+    disconnect: {
+        name: 'Disconnect-aware stream',
+        source: 'examples/11-disconnect-aware-stream.ts',
+    },
 };
 const compilations = new Map();
 function compileExample(example) {
@@ -654,6 +658,9 @@ suite('Documented examples', () => {
                 }).value({ lines: 14, opening: true, ending: true }).deepEqual;
             }, ['--interval', '10']);
         });
+    }));
+    suite('Disconnect-aware stream', doSuite('disconnect', () => {
+        testCompilation(examples.disconnect);
     }));
 });
 process.once('beforeExit', async () => {

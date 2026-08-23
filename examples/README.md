@@ -18,6 +18,7 @@ directly, so a separate build is unnecessary while exploring them.
 - [8. OAuth Device Authorization](#8-oauth-device-authorization)
 - [9. OAuth Client Credentials](#9-oauth-client-credentials)
 - [10. Streaming Ozymandias](#10-streaming-ozymandias)
+- [11. Disconnect-aware Stream](#11-disconnect-aware-stream)
 - [Common Patterns](#common-patterns)
 - [Best Practices](#best-practices)
 
@@ -488,6 +489,46 @@ curl --no-buffer http://127.0.0.1:3010/poem
 
 Each `sendChunk()` is awaited before the configured delay, respecting the
 native response's write lifecycle.
+
+---
+
+## 11. Disconnect-aware Stream
+
+Source: `11-disconnect-aware-stream.ts`
+
+**Run:**
+
+```bash
+npx tsx examples/11-disconnect-aware-stream.ts --port 3011
+```
+
+Use `--interval 100 --count 50` to adjust the stream while experimenting.
+
+**Concepts:** Client disconnect events, route-work cancellation, suppressed
+native writes
+
+**Endpoints:**
+
+- `GET /ticks` - Stream numbered ticks until complete or the client leaves.
+
+**Key Pattern:**
+
+```typescript
+const cancellation = new AbortController();
+res.onDisconnect(() => cancellation.abort());
+
+await delay(interval, undefined, { signal: cancellation.signal });
+await res.sendChunk(`tick ${tick}\n`);
+```
+
+**Try it:**
+
+```bash
+curl --no-buffer http://127.0.0.1:3011/ticks
+```
+
+Press Ctrl-C while it runs. The route aborts its timer, while Filament prevents
+any subsequent response method from starting native I/O.
 
 ---
 
