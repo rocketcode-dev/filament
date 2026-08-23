@@ -1,4 +1,10 @@
-import { createApp, FrameworkMeta } from '../src/index';
+import { createApp, FrameworkMeta, HttpError } from '../src/index.js';
+import { parseArgs } from 'node:util';
+
+const { port: portOption, silent = false } = parseArgs({
+  options: { port: { type: 'string' }, silent: { type: 'boolean' } },
+}).values;
+const port = Number(portOption ?? 0);
 
 /**
  * Example 1: Simple Blog API
@@ -12,9 +18,10 @@ interface BlogMeta extends FrameworkMeta {
 }
 
 const app = createApp<BlogMeta>({
+  application: { maxRequestSize: '2MiB' },
   requiresAuth: false,
   rateLimit: 100,
-});
+}, {});
 
 // Mock user database
 const users = new Map([
@@ -30,10 +37,14 @@ const posts = new Map([
 ]);
 
 // Authentication middleware
-app.use(async (req, res, next) => {
+app.use(async (req, res) => {
   if (req.endpointMeta.requiresAuth) {
-    const token = req.headers.authorization?.toString();
-    
+    let token = req.headers.get('authorization');
+
+    if (Array.isArray(token)) {
+      token = token[0];
+    }
+
     if (!token) {
       res.status(401).json({ error: 'Authentication required' });
       return;
@@ -49,11 +60,10 @@ app.use(async (req, res, next) => {
     (req as any).user = user;
   }
   
-  await next();
 });
 
 // Role-based authorization middleware
-app.use(async (req, res, next) => {
+app.use(async (req, res) => {
   const requiredRole = req.endpointMeta.role;
   
   if (requiredRole) {
@@ -72,7 +82,6 @@ app.use(async (req, res, next) => {
     }
   }
   
-  await next();
 });
 
 // Public endpoints
@@ -96,7 +105,7 @@ app.get('/posts/:id', {}, async (req, res) => {
 app.post('/posts',
   { requiresAuth: true, role: 'editor', rateLimit: 10 },
   async (req, res) => {
-    const { title, content } = req.body as any;
+    const { title, content } = JSON.parse(req.body?.toString() || '{}');
     const user = (req as any).user;
     
     const newPost = {
@@ -123,17 +132,17 @@ app.patch('/posts/:id',
     }
     
     const user = (req as any).user;
-    
+
     // Editors can only edit their own posts
     if (user.role === 'editor' && post.authorId !== user.id) {
       res.status(403).json({ error: 'Can only edit your own posts' });
       return;
     }
     
-    const { title, content } = req.body as any;
+    const { title, content } = JSON.parse(req.body?.toString() || '{}');
     const updated = { ...post, title, content };
     posts.set(postId, updated);
-    
+
     res.json({ post: updated });
   }
 );
@@ -156,27 +165,33 @@ app.delete('/posts/:id',
 
 // Error handling
 app.onError(async (err, req, res) => {
+  if (err instanceof HttpError) {
+    return;
+  }
   console.error('Error:', err);
   res.status(500).json({ error: 'Internal server error' });
 });
 
 // Request logging
-app.onFinalize(async (req, res) => {
-  const user = (req as any).user;
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} - ${res.statusCode} ${user ? `(user: ${user.id})` : '(anonymous)'}`);
-});
+if (!silent) {
+  app.onFinalize(async (req, res) => {
+    const user = (req as any).user;
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} - ${res.statusCode} ${user ? `(user: ${user.id})` : '(anonymous)'}`);
+  });
+}
 
-const PORT = 3001;
-app.listen(PORT, () => {
-  console.log(`\n📝 Blog API running on http://localhost:${PORT}`);
-  console.log('\nEndpoints:');
-  console.log('  GET    /posts          - List all posts (public)');
-  console.log('  GET    /posts/:id      - Get post by ID (public)');
-  console.log('  POST   /posts          - Create post (editor+)');
-  console.log('  PATCH  /posts/:id      - Update post (editor+, own posts only)');
-  console.log('  DELETE /posts/:id      - Delete post (admin only)');
-  console.log('\nAuth tokens:');
-  console.log('  token-admin   - Admin user');
-  console.log('  token-editor  - Editor user');
-  console.log('  token-viewer  - Viewer user\n');
+app.listen(port).then(port => {
+  if (!silent) {
+    console.log(`\n📝 Blog API running on http://localhost:${port}`);
+    console.log('\nEndpoints:');
+    console.log('  GET    /posts          - List all posts (public)');
+    console.log('  GET    /posts/:id      - Get post by ID (public)');
+    console.log('  POST   /posts          - Create post (editor+)');
+    console.log('  PATCH  /posts/:id      - Update post (editor+, own posts only)');
+    console.log('  DELETE /posts/:id      - Delete post (admin only)');
+    console.log('\nAuth tokens:');
+    console.log('  token-admin   - Admin user');
+    console.log('  token-editor  - Editor user');
+    console.log('  token-viewer  - Viewer user\n');
+  }
 });

@@ -1,322 +1,222 @@
-import { createApp, FrameworkMeta } from '../src/index';
+import {
+  ContextMeta,
+  createApp,
+  FrameworkMeta,
+  NegativeObservabilityForStatus,
+  ObservedInfo,
+} from '../src/index.js';
+import { parseArgs } from 'node:util';
+
+const { port: portOption, silent = false } = parseArgs({
+  options: { port: { type: 'string' }, silent: { type: 'boolean' } },
+}).values;
+const port = Number(portOption ?? 0);
 
 /**
- * Example 4: Distributed Tracing and Observability
- * Demonstrates metadata-driven logging, tracing, and monitoring
+ * Example 4: Gathering observability data
+ *
+ * Filament gathers request facts and policy timings. It deliberately does not
+ * decide where they go: this example's finalizer keeps a small in-memory list
+ * which the diagnostic endpoints summarize.
  */
 
 interface ObservabilityMeta extends FrameworkMeta {
-  trace: {
-    enabled: boolean;
-    sampleRate: number; // 0.0 to 1.0
-    includeHeaders: boolean;
-    includeBody: boolean;
-  };
-  metrics: {
-    enabled: boolean;
-    dimensions: string[];
-  };
-  logging: {
-    level: 'debug' | 'info' | 'warn' | 'error';
-    structured: boolean;
-    sensitiveFields?: string[];
-  };
   service: string;
 }
 
-const app = createApp<ObservabilityMeta>({
-  trace: {
-    enabled: true,
-    sampleRate: 1.0,
-    includeHeaders: false,
-    includeBody: false,
-  },
-  metrics: {
-    enabled: true,
-    dimensions: ['endpoint', 'status'],
-  },
-  logging: {
-    level: 'info',
-    structured: true,
-  },
-  service: 'api-gateway',
-});
+interface ObservabilityContext extends ContextMeta {}
 
-// Simple trace storage
-interface Trace {
-  traceId: string;
-  spanId: string;
-  parentSpanId?: string;
-  service: string;
-  endpoint: string;
-  startTime: number;
-  duration?: number;
-  status: number;
-  metadata: Record<string, any>;
-}
+const app = createApp<ObservabilityMeta, ObservabilityContext>(
+  {
+    application: {
+      maxRequestSize: '2MiB',
+      observability: {
+        enabled: true,
+        // IDs, timing, origin, method, path, search, status, and policy trace
+        // use their defaults. Failures may retain response details, while the
+        // exact 200 policy explicitly removes them.
+        success: { responseHeaders: true },
+        failure: {
+          statusText: true,
+          responseHeaders: true,
+          responseBody: true,
+        },
+        200: { responseBody: false, responseHeaders: false },
+      },
+    },
+    service: 'api-gateway',
+  },
+  {},
+);
 
-const traces: Trace[] = [];
+const observations: Array<ObservedInfo & { service: string }> = [];
 const metrics = new Map<string, number>();
 
-// Generate trace ID
-function generateId(): string {
-  return Math.random().toString(36).substring(2, 15);
+function copyObservation(observed: ObservedInfo): ObservedInfo {
+  return JSON.parse(JSON.stringify(observed)) as ObservedInfo;
 }
 
-// Tracing middleware
-app.use(async (req, res, next) => {
-  const { enabled, sampleRate, includeHeaders, includeBody } = req.endpointMeta.trace;
-  
-  if (!enabled || Math.random() > sampleRate) {
-    await next();
-    return;
-  }
-  
-  // Extract or create trace ID
-  const traceId = req.headers['x-trace-id']?.toString() || generateId();
-  const parentSpanId = req.headers['x-span-id']?.toString();
-  const spanId = generateId();
-  
-  // Attach to request
-  (req as any).traceId = traceId;
-  (req as any).spanId = spanId;
-  
-  // Add trace headers to response
-  res.setHeader('X-Trace-Id', traceId);
-  res.setHeader('X-Span-Id', spanId);
-  
-  const trace: Trace = {
-    traceId,
-    spanId,
-    parentSpanId,
-    service: req.endpointMeta.service,
-    endpoint: req.path,
-    startTime: Date.now(),
-    status: 200,
-    metadata: {
-      method: req.method,
-      ...(includeHeaders && { headers: req.headers }),
-      ...(includeBody && { body: req.body }),
+// This is application behavior, not reporting built into Filament. It makes
+// the framework-generated ID available to callers for log correlation.
+app.use(async function publishCorrelationId(req, res) {
+  if (!req.endpointMeta.application.observability?.enabled) return;
+  const requestId = req.context.application?.observed?.requestId;
+  if (requestId) res.headers.set('X-Request-Id', requestId);
+});
+
+app.get('/users/:id', { service: 'user-service' }, async function getUser(req, res) {
+  await new Promise(resolve => setTimeout(resolve, 20));
+  await res.json({
+    id: req.params.id,
+    name: 'John Doe',
+    email: 'john@example.com',
+  });
+});
+
+app.post('/payments', {
+  application: {
+    maxRequestSize: '2MiB',
+    observability: {
+      enabled: true,
+      // A successful payment deliberately retains neither request nor response
+      // bodies. Failure responses remain available through the application
+      // default, illustrating outcome-dependent collection.
+      success: {
+        requestBody: false,
+        responseHeaders: false,
+        responseBody: false,
+      },
     },
-  };
-  
-  // Store trace
-  (req as any).trace = trace;
-  
-  await next();
+  },
+  service: 'payment-service',
+}, async function createPayment(req, res) {
+  const body = JSON.parse(req.body?.toString() || '{}') as { amount?: number };
+  await res.status(201).json({
+    transactionId: Math.random().toString(36).slice(2, 15),
+    status: 'success',
+    amount: body.amount,
+  });
 });
 
-// Metrics middleware
-app.use(async (req, res, next) => {
-  if (!req.endpointMeta.metrics.enabled) {
-    await next();
+app.get('/analytics/events', {
+  application: {
+    maxRequestSize: '2MiB',
+    observability: {
+      enabled: true,
+      success: { requestHeaders: true },
+    },
+  },
+  service: 'analytics-service',
+}, async function listEvents(_req, res) {
+  await res.json({
+    events: [
+      { type: 'page_view', count: 1234 },
+      { type: 'button_click', count: 567 },
+    ],
+  });
+});
+
+// The endpoint policy permits retaining a successful response body. The
+// request-local context can only reduce that policy, so every value other than
+// `responseBody=true` suppresses the body before finalizers consume it.
+app.get('/echo', {
+  application: {
+    maxRequestSize: '2MiB',
+    observability: {
+      enabled: true,
+      200: { responseBody: true },
+    },
+  },
+  service: 'echo-service',
+}, async function echo(req, res) {
+  const retainResponseBody = req.query.responseBody === 'true';
+  const retainTrace = req.query.trace === 'true';
+  if (!retainResponseBody || !retainTrace) {
+    const suppression: NegativeObservabilityForStatus = {};
+    if (!retainResponseBody) suppression.responseBody = false;
+    if (!retainTrace) suppression.trace = false;
+    req.context.application ??= {};
+    req.context.application.observability = {
+      200: suppression,
+    };
+  }
+
+  await res.json({
+    echo: req.query.message ?? 'Hello from Filament',
+    responseBody: retainResponseBody,
+  });
+});
+
+const diagnosticMeta = {
+  application: {
+    maxRequestSize: '2MiB',
+    observability: { enabled: false },
+  },
+  service: 'api-gateway',
+};
+
+app.get('/health', diagnosticMeta, async function health(_req, res) {
+  await res.json({ status: 'healthy', timestamp: Date.now() });
+});
+
+app.get('/metrics', diagnosticMeta, async function listMetrics(_req, res) {
+  await res.json({ metrics: Object.fromEntries(metrics) });
+});
+
+app.get('/traces', diagnosticMeta, async function listTraces(req, res) {
+  const limit = Number(req.query.limit) || 10;
+  await res.json({
+    traces: observations.slice(-limit).map(({ requestId, service, trace }) => ({
+      requestId,
+      service,
+      trace,
+    })),
+  });
+});
+
+app.get('/observations', diagnosticMeta, async function listObservations(req, res) {
+  const limit = Number(req.query.limit) || 10;
+  await res.json({ observations: observations.slice(-limit) });
+});
+
+app.onFinalize(function retainObservation(req, res) {
+  const observed = req.context.application?.observed;
+  // Disabled endpoints still receive their requestId and startTime, but have no
+  // gathered details to retain.
+  if (!observed?.requestInfo && !observed?.responseInfo && !observed?.trace) {
     return;
   }
-  
-  const startTime = Date.now();
-  
-  await next();
-  
-  const duration = Date.now() - startTime;
-  const dimensions = req.endpointMeta.metrics.dimensions;
-  
-  // Record metrics based on dimensions
-  const metricKey = dimensions
-    .map(dim => {
-      if (dim === 'endpoint') return req.path;
-      if (dim === 'status') return res.statusCode.toString();
-      if (dim === 'method') return req.method;
-      if (dim === 'service') return req.endpointMeta.service;
-      return dim;
-    })
-    .join(':');
-  
-  metrics.set(`${metricKey}:count`, (metrics.get(`${metricKey}:count`) || 0) + 1);
-  metrics.set(`${metricKey}:duration`, (metrics.get(`${metricKey}:duration`) || 0) + duration);
+
+  observations.push({
+    ...copyObservation(observed),
+    service: req.endpointMeta.service,
+  });
+  if (observations.length > 1000) observations.shift();
+
+  const key = `${req.endpointMeta.service}:${res.statusCode}`;
+  metrics.set(key, (metrics.get(key) ?? 0) + 1);
+
+  if (!silent) console.log(JSON.stringify(observed));
 });
 
-// Structured logging middleware
-app.use(async (req, res, next) => {
-  const { level, structured, sensitiveFields } = req.endpointMeta.logging;
-  
-  if (level === 'debug' || level === 'info') {
-    const logEntry = structured
-      ? {
-          timestamp: new Date().toISOString(),
-          level: 'INFO',
-          service: req.endpointMeta.service,
-          traceId: (req as any).traceId,
-          spanId: (req as any).spanId,
-          method: req.method,
-          path: req.path,
-          event: 'request.start',
-        }
-      : `[${req.endpointMeta.service}] ${req.method} ${req.path}`;
-    
-    console.log(structured ? JSON.stringify(logEntry) : logEntry);
+app.listen(port).then(actualPort => {
+  if (!silent) {
+    console.log(`\n🔍 Observability example running on http://localhost:${actualPort}`);
+    console.log('\nService Endpoints:');
+    console.log('  GET  /users/:id          - User trace without response details');
+    console.log('  POST /payments           - Payment service without retained bodies');
+    console.log('  GET  /analytics/events   - Analytics service with request headers');
+    console.log('  GET  /echo               - Request-local response-body collection');
+    console.log('  GET  /health             - Health check without observation');
+    console.log('\nObservability Endpoints:');
+    console.log('  GET  /metrics                  - View finalizer-derived counters');
+    console.log('  GET  /traces?limit=10          - View recent policy traces');
+    console.log('  GET  /observations?limit=10    - View gathered observations');
+    console.log('\nTry:');
+    console.log(`  curl -i http://localhost:${actualPort}/users/42`);
+    console.log(`  curl http://localhost:${actualPort}/analytics/events`);
+    console.log(`  curl "http://localhost:${actualPort}/echo?message=hello&responseBody=true"`);
+    console.log(`  curl "http://localhost:${actualPort}/echo?message=secret&responseBody=false"`);
+    console.log(`  curl http://localhost:${actualPort}/observations?limit=5\n`);
   }
-  
-  await next();
-});
-
-// Service endpoints
-
-// User service endpoint
-app.get('/users/:id',
-  {
-    trace: { enabled: true, sampleRate: 1.0, includeHeaders: false, includeBody: false },
-    metrics: { enabled: true, dimensions: ['service', 'endpoint', 'status'] },
-    logging: { level: 'info', structured: true },
-    service: 'user-service',
-  },
-  async (req, res) => {
-    // Simulate external service call
-    await new Promise(resolve => setTimeout(resolve, 50));
-    
-    res.json({
-      id: req.params.id,
-      name: 'John Doe',
-      email: 'john@example.com',
-    });
-  }
-);
-
-// Payment service endpoint (sensitive data)
-app.post('/payments',
-  {
-    trace: { enabled: true, sampleRate: 0.1, includeHeaders: false, includeBody: false },
-    metrics: { enabled: true, dimensions: ['service', 'status'] },
-    logging: { level: 'warn', structured: true, sensitiveFields: ['cardNumber', 'cvv'] },
-    service: 'payment-service',
-  },
-  async (req, res) => {
-    // Simulate payment processing
-    await new Promise(resolve => setTimeout(resolve, 200));
-    
-    res.json({
-      transactionId: generateId(),
-      status: 'success',
-      amount: (req.body as any).amount,
-    });
-  }
-);
-
-// Analytics service endpoint (debug logging)
-app.get('/analytics/events',
-  {
-    trace: { enabled: true, sampleRate: 1.0, includeHeaders: true, includeBody: true },
-    metrics: { enabled: true, dimensions: ['service', 'endpoint'] },
-    logging: { level: 'debug', structured: true },
-    service: 'analytics-service',
-  },
-  async (req, res) => {
-    await new Promise(resolve => setTimeout(resolve, 100));
-    
-    res.json({
-      events: [
-        { type: 'page_view', count: 1234 },
-        { type: 'button_click', count: 567 },
-      ],
-    });
-  }
-);
-
-// Health check (minimal tracing)
-app.get('/health',
-  {
-    trace: { enabled: false, sampleRate: 0, includeHeaders: false, includeBody: false },
-    metrics: { enabled: false, dimensions: [] },
-    logging: { level: 'error', structured: false },
-    service: 'api-gateway',
-  },
-  async (req, res) => {
-    res.json({ status: 'healthy', timestamp: Date.now() });
-  }
-);
-
-// Internal metrics endpoint
-app.get('/metrics',
-  {
-    trace: { enabled: false, sampleRate: 0, includeHeaders: false, includeBody: false },
-    metrics: { enabled: false, dimensions: [] },
-    logging: { level: 'info', structured: false },
-    service: 'api-gateway',
-  },
-  async (req, res) => {
-    const metricsData: Record<string, any> = {};
-    
-    metrics.forEach((value, key) => {
-      metricsData[key] = value;
-    });
-    
-    res.json({ metrics: metricsData });
-  }
-);
-
-// Internal traces endpoint
-app.get('/traces',
-  {
-    trace: { enabled: false, sampleRate: 0, includeHeaders: false, includeBody: false },
-    metrics: { enabled: false, dimensions: [] },
-    logging: { level: 'info', structured: false },
-    service: 'api-gateway',
-  },
-  async (req, res) => {
-    const limit = parseInt(req.query.limit as string) || 10;
-    res.json({ traces: traces.slice(-limit) });
-  }
-);
-
-// Finalize traces
-app.onFinalize(async (req, res) => {
-  const trace = (req as any).trace as Trace | undefined;
-  
-  if (trace) {
-    trace.duration = Date.now() - trace.startTime;
-    trace.status = res.statusCode;
-    traces.push(trace);
-    
-    // Keep only last 1000 traces
-    if (traces.length > 1000) {
-      traces.shift();
-    }
-  }
-  
-  // Structured logging for completion
-  const { structured, level } = req.endpointMeta.logging;
-  
-  if (level === 'debug' || level === 'info') {
-    const duration = Date.now() - (req._startTime || Date.now());
-    
-    const logEntry = structured
-      ? {
-          timestamp: new Date().toISOString(),
-          level: 'INFO',
-          service: req.endpointMeta.service,
-          traceId: (req as any).traceId,
-          spanId: (req as any).spanId,
-          method: req.method,
-          path: req.path,
-          status: res.statusCode,
-          duration,
-          event: 'request.complete',
-        }
-      : `[${req.endpointMeta.service}] ${req.method} ${req.path} - ${res.statusCode} - ${duration}ms`;
-    
-    console.log(structured ? JSON.stringify(logEntry) : logEntry);
-  }
-});
-
-const PORT = 3004;
-app.listen(PORT, () => {
-  console.log(`\n🔍 Observability example running on http://localhost:${PORT}`);
-  console.log('\nService Endpoints:');
-  console.log('  GET  /users/:id          - User service (full tracing)');
-  console.log('  POST /payments           - Payment service (10% sample rate, sensitive)');
-  console.log('  GET  /analytics/events   - Analytics service (debug logging)');
-  console.log('  GET  /health             - Health check (no tracing)');
-  console.log('\nObservability Endpoints:');
-  console.log('  GET  /metrics            - View collected metrics');
-  console.log('  GET  /traces?limit=10    - View recent traces');
-  console.log('\nMake some requests and then check /metrics and /traces!\n');
 });

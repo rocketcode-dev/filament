@@ -1,6 +1,6 @@
 {
   "name": "filamentjs",
-  "version": "0.3.0",
+  "version": "0.6.0",
   "description": "A TypeScript API framework with metadata-driven middleware",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
@@ -10,6 +10,7 @@
     "start": "node dist/src/example.js",
     "dev": "tsc && node dist/src/example.js",
     "test": "npm run build && node --test dist/tests/**/*.test.js",
+    "test:coverage": "npm run build && node --experimental-test-coverage --test-coverage-include='dist/src/**/*.js' --test-coverage-lines=90 --test-coverage-branches=85 --test-coverage-functions=95 --test dist/tests/**/*.test.js",
     "prepublishOnly": "npm run build && npm run test",
     "prepare": "git config core.hooksPath .githooks || true"
   },
@@ -24,8 +25,9 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "@types/node": "^20.19.41",
-    "test-battery": "^3.2.1",
+    "@types/node": "^20.19.43",
+    "test-battery": "^3.2.2",
+    "tsx": "^4.23.12",
     "typescript": "^5.0.0"
   }
 }

@@ -1,4 +1,4 @@
-import { createApp, FrameworkMeta } from './index.js';
+import { createApp, FrameworkMeta, HttpError } from './index.js';
 
 /**
  * Example application demonstrating Filament usage
@@ -14,6 +14,7 @@ interface AppMeta extends FrameworkMeta {
 
 // Create default metadata (must fully implement AppMeta)
 const defaultMeta: AppMeta = {
+  application: { maxRequestSize: '2MiB' },
   requiresAuth: false,
   rateLimit: 100,
   logLevel: 'info',
@@ -21,12 +22,12 @@ const defaultMeta: AppMeta = {
 };
 
 // Create application with typed metadata
-const app = createApp<AppMeta>(defaultMeta);
+const app = createApp<AppMeta>(defaultMeta, {});
 
 // Authentication middleware - inspects endpointMeta
-app.use(async (req, res, next) => {
+app.use(async (req, res) => {
   if (req.endpointMeta.requiresAuth) {
-    const token = req.headers.authorization;
+    const token = req.headers.get('authorization');
     
     if (!token) {
       res.status(401).json({ error: 'Unauthorized - No token provided' });
@@ -37,28 +38,25 @@ app.use(async (req, res, next) => {
     console.log(`[Auth] Validating token for ${req.path}`);
   }
   
-  await next();
 });
 
 // Rate limiting middleware - uses rateLimit from meta
-app.use(async (req, res, next) => {
+app.use(async (req) => {
   const limit = req.endpointMeta.rateLimit;
   console.log(`[RateLimit] Endpoint ${req.path} has limit: ${limit} req/min`);
   
   // In real app, implement actual rate limiting here
   
-  await next();
 });
 
 // Logging middleware - uses logLevel from meta
-app.use(async (req, res, next) => {
+app.use(async (req) => {
   const level = req.endpointMeta.logLevel;
   
   if (level === 'debug' || level === 'info') {
     console.log(`[${level.toUpperCase()}] ${req.method} ${req.path}`);
   }
   
-  await next();
 });
 
 // Public endpoint - uses default meta
@@ -108,17 +106,20 @@ app.get('/users/:id',
 // Response transformer - adds headers based on tags
 app.onTransform(async (req, res) => {
   if (req.endpointMeta.tags.includes('api')) {
-    res.setHeader('X-API-Version', '1.0');
+    res.headers.set('X-API-Version', '1.0');
   }
   
   if (req.endpointMeta.tags.includes('sensitive')) {
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'DENY');
+    res.headers.set('X-Content-Type-Options', 'nosniff');
+    res.headers.set('X-Frame-Options', 'DENY');
   }
 });
 
 // Error handler
 app.onError(async (err, req, res) => {
+  if (err instanceof HttpError) {
+    return;
+  }
   const level = req.endpointMeta.logLevel;
   
   if (level === 'debug' || level === 'error') {

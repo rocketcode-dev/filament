@@ -4,6 +4,10 @@
  * Provides functions to convert Express-style path patterns to regular expressions
  * and to match incoming request paths against route patterns.
  */
+const parameterPattern = /:([A-Za-z_][A-Za-z0-9_]*)/g;
+function escapeRegex(value) {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 /**
  * Convert Express-style path to RegExp and extract parameter names.
  *
@@ -21,15 +25,19 @@
  * ```
  */
 export function pathToRegex(path) {
+    if (!path.startsWith('/')) {
+        throw new TypeError(`Route path must start with "/": ${path}`);
+    }
     const paramNames = [];
-    // Convert :param to named capture groups
-    const regexPattern = path
-        .replace(/:[^/]+/g, (match) => {
-        const paramName = match.slice(1); // Remove the ':'
-        paramNames.push(paramName);
-        return '([^/]+)';
-    })
-        .replace(/\//g, '\\/'); // Escape forward slashes
+    let regexPattern = '';
+    let lastIndex = 0;
+    for (const match of path.matchAll(parameterPattern)) {
+        regexPattern += escapeRegex(path.slice(lastIndex, match.index));
+        regexPattern += '([^/]+)';
+        paramNames.push(match[1]);
+        lastIndex = match.index + match[0].length;
+    }
+    regexPattern += escapeRegex(path.slice(lastIndex));
     const pattern = new RegExp(`^${regexPattern}$`);
     return { pattern, paramNames };
 }
@@ -61,7 +69,7 @@ export function matchPath(requestPath, pattern, paramNames) {
     const params = {};
     // Extract parameter values from capture groups
     for (let i = 0; i < paramNames.length; i++) {
-        params[paramNames[i]] = match[i + 1];
+        params[paramNames[i]] = decodeURIComponent(match[i + 1]);
     }
     return { params };
 }

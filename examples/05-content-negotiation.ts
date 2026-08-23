@@ -1,4 +1,10 @@
-import { createApp, FrameworkMeta } from '../src/index';
+import { createApp, FrameworkMeta } from '../src/index.js';
+import { parseArgs } from 'node:util';
+
+const { port: portOption, silent = false } = parseArgs({
+  options: { port: { type: 'string' }, silent: { type: 'boolean' } },
+}).values;
+const port = Number(portOption ?? 0);
 
 /**
  * Example 5: Content Negotiation and Response Transformation
@@ -14,12 +20,13 @@ interface ContentMeta extends FrameworkMeta {
 }
 
 const app = createApp<ContentMeta>({
+  application: { maxRequestSize: '2MiB' },
   formats: ['json'],
   defaultFormat: 'json',
   compress: false,
   prettyPrint: false,
   includeMetadata: false,
-});
+}, {});
 
 // Sample data
 const books = [
@@ -33,37 +40,37 @@ function toXML(obj: any, root: string = 'root'): string {
   if (Array.isArray(obj)) {
     return `<${root}>${obj.map((item, i) => toXML(item, 'item')).join('')}</${root}>`;
   }
-  
+
   if (typeof obj === 'object' && obj !== null) {
     return `<${root}>${Object.entries(obj)
       .map(([key, value]) => toXML(value, key))
       .join('')}</${root}>`;
   }
-  
+
   return `<${root}>${obj}</${root}>`;
 }
 
 // Helper: Convert to CSV
 function toCSV(data: any[]): string {
   if (!data.length) return '';
-  
+
   const headers = Object.keys(data[0]);
-  const rows = data.map(item => 
+  const rows = data.map(item =>
     headers.map(h => JSON.stringify(item[h] ?? '')).join(',')
   );
-  
+
   return [headers.join(','), ...rows].join('\n');
 }
 
 // Helper: Convert to HTML table
 function toHTML(data: any[], title: string = 'Data'): string {
   if (!data.length) return '<html><body><p>No data</p></body></html>';
-  
+
   const headers = Object.keys(data[0]);
-  const rows = data.map(item => 
+  const rows = data.map(item =>
     `<tr>${headers.map(h => `<td>${item[h]}</td>`).join('')}</tr>`
   ).join('');
-  
+
   return `
 <!DOCTYPE html>
 <html>
@@ -90,17 +97,17 @@ function toHTML(data: any[], title: string = 'Data'): string {
 }
 
 // Content negotiation middleware
-app.use(async (req, res, next) => {
-  const acceptHeader = req.headers.accept?.toString() || '';
+app.use(async (req, res) => {
+  const acceptHeader = req.headers.get('accept') as string || '';
   const formatParam = req.query.format as string;
   const supportedFormats = req.endpointMeta.formats;
-  
+
   let requestedFormat = req.endpointMeta.defaultFormat;
-  
+
   // Check query parameter first
   if (formatParam && supportedFormats.includes(formatParam as any)) {
     requestedFormat = formatParam as any;
-  } 
+  }
   // Then check Accept header
   else if (acceptHeader.includes('application/xml') && supportedFormats.includes('xml')) {
     requestedFormat = 'xml';
@@ -111,11 +118,10 @@ app.use(async (req, res, next) => {
   } else if (acceptHeader.includes('application/json') && supportedFormats.includes('json')) {
     requestedFormat = 'json';
   }
-  
+
   // Store format in request
   (req as any).responseFormat = requestedFormat;
-  
-  await next();
+
 });
 
 // Multi-format endpoints
@@ -145,12 +151,12 @@ app.get('/books/:id',
   },
   async (req, res) => {
     const book = books.find(b => b.id === parseInt(req.params.id));
-    
+
     if (!book) {
       res.status(404).json({ error: 'Book not found' });
       return;
     }
-    
+
     res.json(book);
   }
 );
@@ -173,7 +179,7 @@ app.get('/stats',
         latest: Math.max(...books.map(b => b.year)),
       },
     };
-    
+
     res.json(stats);
   }
 );
@@ -182,14 +188,14 @@ app.get('/stats',
 app.onTransform(async (req, res) => {
   const format = (req as any).responseFormat;
   const { prettyPrint, includeMetadata } = req.endpointMeta;
-  
-  if (!res.body) return;
-  
+
+  const body = res.body?.toString() || ''
+
   try {
-    const data = JSON.parse(res.body as string);
+    const data = JSON.parse(body);
     let transformed: string;
     let contentType: string;
-    
+
     // Wrap with metadata if needed
     const payload = includeMetadata ? {
       data,
@@ -199,40 +205,40 @@ app.onTransform(async (req, res) => {
         path: req.path,
       },
     } : data;
-    
+
     // Transform based on format
     switch (format) {
       case 'xml':
         transformed = '<?xml version="1.0" encoding="UTF-8"?>\n' + toXML(payload, 'response');
         contentType = 'application/xml';
         break;
-        
+
       case 'csv':
         const csvData = Array.isArray(data) ? data : [data];
         transformed = toCSV(csvData);
         contentType = 'text/csv';
-        res.setHeader('Content-Disposition', `attachment; filename="${req.path.replace(/\//g, '_')}.csv"`);
+        res.headers.set('Content-Disposition', `attachment; filename="${req.path.replace(/\//g, '_')}.csv"`);
         break;
-        
+
       case 'html':
         const htmlData = Array.isArray(data) ? data : [data];
         const title = req.path.split('/').filter(Boolean).join(' > ');
         transformed = toHTML(htmlData, title || 'Data');
         contentType = 'text/html';
         break;
-        
+
       case 'json':
       default:
-        transformed = prettyPrint 
+        transformed = prettyPrint
           ? JSON.stringify(payload, null, 2)
           : JSON.stringify(payload);
         contentType = 'application/json';
         break;
     }
-    
-    res.setHeader('Content-Type', contentType);
+
+    res.headers.set('Content-Type', contentType);
     res.body = transformed;
-    
+
   } catch (e) {
     // If transformation fails, leave as-is
     console.error('Transformation error:', e);
@@ -242,27 +248,28 @@ app.onTransform(async (req, res) => {
 // Compression simulation (in real app, use actual compression)
 app.onTransform(async (req, res) => {
   if (req.endpointMeta.compress && res.body) {
-    const originalSize = (res.body as string).length;
+    const originalSize = res.body?.length;
     // In real implementation, use zlib or similar
-    res.setHeader('Content-Encoding', 'gzip');
-    res.setHeader('X-Original-Size', originalSize.toString());
-    res.setHeader('X-Compressed-Size', Math.floor(originalSize * 0.7).toString());
+    res.headers.set('Content-Encoding', 'gzip');
+    res.headers.set('X-Original-Size', originalSize.toString());
+    res.headers.set('X-Compressed-Size', Math.floor(originalSize * 0.7).toString());
   }
 });
 
-const PORT = 3005;
-app.listen(PORT, () => {
-  console.log(`\n🎨 Content negotiation example running on http://localhost:${PORT}`);
-  console.log('\nEndpoints:');
-  console.log('  GET /books           - List books (JSON, XML, CSV, HTML)');
-  console.log('  GET /books/:id       - Single book (JSON, XML)');
-  console.log('  GET /stats           - Statistics (JSON only)');
-  console.log('\nTry different formats:');
-  console.log('  curl http://localhost:3005/books');
-  console.log('  curl http://localhost:3005/books?format=xml');
-  console.log('  curl http://localhost:3005/books?format=csv');
-  console.log('  curl http://localhost:3005/books?format=html');
-  console.log('  curl -H "Accept: application/xml" http://localhost:3005/books');
-  console.log('  curl -H "Accept: text/csv" http://localhost:3005/books');
-  console.log('\nOpen http://localhost:3005/books?format=html in your browser!\n');
+app.listen(port).then(port => {
+  if (!silent) {
+    console.log(`\n🎨 Content negotiation example running on http://localhost:${port}`);
+    console.log('\nEndpoints:');
+    console.log('  GET /books           - List books (JSON, XML, CSV, HTML)');
+    console.log('  GET /books/:id       - Single book (JSON, XML)');
+    console.log('  GET /stats           - Statistics (JSON only)');
+    console.log('\nTry different formats:');
+    console.log(`  curl http://localhost:${port}/books`);
+    console.log(`  curl http://localhost:${port}/books?format=xml`);
+    console.log(`  curl http://localhost:${port}/books?format=csv`);
+    console.log(`  curl http://localhost:${port}/books?format=html`);
+    console.log(`  curl -H "Accept: application/xml" http://localhost:${port}/books`);
+    console.log(`  curl -H "Accept: text/csv" http://localhost:${port}/books`);
+    console.log(`\nOpen http://localhost:${port}/books?format=html in your browser!\n`);
+  }
 });
